@@ -1,0 +1,49 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+venv/
+.venv/
+env/
+
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+*.secret
+secrets.*
+*.key
+*.pem
+*.p12
+*.pfx
+credentials.*
+*api_key*
+*apikey*
+*access_token*
+config/local*
+config/private*
+config/*secret*
+config/*credential*
+config/*key*
+config/*token*
+
+# Data, logs, and raw API payloads
+data/
+logs/
+raw_response*
+*_response.json
+*.db
+*.sqlite
+*.sqlite3
+*.db-journal
+*.sqlite-journal
+*.wal
+*.shm
+
+# Editor / OS
+.idea/
+.vscode/
+Thumbs.db
+Desktop.ini

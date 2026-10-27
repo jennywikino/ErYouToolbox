@@ -1,0 +1,10 @@
+{
+  "games": [
+    {"name": "Genshin Impact", "game_id": 8552},
+    {"name": "Honkai Star Rail", "game_id": 18366},
+    {"name": "Zenless Zone Zero", "game_id": 19567},
+    {"name": "Wuthering Waves", "game_id": 20357},
+    {"name": "Arknights Endfield", "game_id": 21842},
+    {"name": "Neverness To Everness", "game_id": 23012}
+  ]
+}
