@@ -91,9 +91,11 @@ def _retry_after_seconds(value: str | None) -> float | None:
 
 def collect_game(client: httpx.Client, game: dict[str, Any], days: int = 30,
                  max_pages: int = 1, per_page: int = 10, delay: float = 1.0,
-                 sort: str = "Generic_NewAndUpdated") -> dict[str, Any]:
+                 sort: str = "Generic_NewAndUpdated", start_page: int = 1) -> dict[str, Any]:
     if max_pages < 1:
         raise ValueError("max_pages must be at least 1")
+    if type(start_page) is not int or start_page < 1:
+        raise ValueError("start_page must be a positive integer")
     if not 1 <= per_page <= MAX_PER_PAGE:
         raise ValueError(f"per_page must be between 1 and {MAX_PER_PAGE}")
     game_id = game["game_id"]
@@ -106,7 +108,7 @@ def collect_game(client: httpx.Client, game: dict[str, Any], days: int = 30,
     pagination_pages: list[dict[str, Any]] = []
     cutoff = int(time.time()) - max(days, 0) * 86400
 
-    for page in range(1, max_pages + 1):
+    for page in range(start_page, start_page + max_pages):
         params = {
             "_nPage": page,
             "_nPerpage": per_page,
@@ -187,7 +189,7 @@ def collect_game(client: httpx.Client, game: dict[str, Any], days: int = 30,
             break
         if pagination_pages and pagination_pages[-1].get("end_of_results"):
             break
-        if page < max_pages:
+        if page < start_page + max_pages - 1:
             time.sleep(delay)
 
     unique = deduplicate(records)

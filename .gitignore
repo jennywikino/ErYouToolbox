@@ -47,3 +47,28 @@ raw_response*
 .vscode/
 Thumbs.db
 Desktop.ini
+
+# Frontend dependencies and generated output
+node_modules/
+dist/
+.vite/
+*.tsbuildinfo
+
+# Database sidecars, backups, and temporary runtime files
+*.db-*
+*.sqlite-*
+*.sqlite3-*
+*.bak
+*.backup
+backups/
+*.tmp
+*.tmp.*
+*.log
+.pytest_cache/
+.mypy_cache/
+*.egg-info/
+.coverage
+htmlcov/
+.DS_Store
+cookies*.json
+cookies*.txt

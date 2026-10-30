@@ -28,7 +28,7 @@ class DatabaseTests(unittest.TestCase):
             tables = {row[0] for row in connection.execute(
                 "SELECT name FROM sqlite_master WHERE type='table'")}
             self.assertTrue({"mods", "user_states", "mod_events", "sync_runs"}.issubset(tables))
-            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 1)
+            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 3)
             self.assertEqual(connection.execute("PRAGMA journal_mode").fetchone()[0].lower(), "delete")
             self.assertEqual(connection.execute("PRAGMA foreign_keys").fetchone()[0], 1)
         finally:

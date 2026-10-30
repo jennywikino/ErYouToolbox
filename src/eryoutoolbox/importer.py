@@ -50,8 +50,10 @@ def _db_record(record: dict[str, Any], captured_at: datetime | None) -> dict[str
     for field in DB_FIELDS:
         value = record.get(field)
         if field in ("tags_json", "preview_urls_json"):
-            source_key = "tags" if field == "tags_json" else "preview_urls"
+            source_key = "tags" if field == "tags_json" else "preview_images"
             value = record.get(source_key)
+            if field == "preview_urls_json" and value is None:
+                value = record.get("preview_urls")
             if value is not None and not isinstance(value, list):
                 value = None
             value = json.dumps(value, ensure_ascii=False, separators=(",", ":")) if value is not None else None
@@ -176,6 +178,7 @@ def _import_locked(connection: sqlite3.Connection, merged: dict[tuple[str, str, 
             plans.append(("inserted", key, new, last_checked, "first_seen", {}, new.get("created_at")))
             continue
         existing_capture = None
+        raw_existing = None
         try:
             raw_existing = json.loads(existing["raw_metadata_json"]) if existing["raw_metadata_json"] else None
             if isinstance(raw_existing, dict):
@@ -211,6 +214,13 @@ def _import_locked(connection: sqlite3.Connection, merged: dict[tuple[str, str, 
                         "old": _event_value(field, current),
                         "new": _event_value(field, incoming),
                     }
+
+        # Index snapshots do not include detail rating labels. Preserve the
+        # independently verified evidence when refreshing ordinary metadata.
+        if isinstance(raw_existing, dict) and isinstance(raw_existing.get("_source_rating_evidence"), dict):
+            raw_incoming = json.loads(new["raw_metadata_json"] or "{}")
+            raw_incoming["_source_rating_evidence"] = raw_existing["_source_rating_evidence"]
+            new["raw_metadata_json"] = json.dumps(raw_incoming, ensure_ascii=False, separators=(",", ":"))
 
         old_updated = parse_utc(existing["updated_at"])
         new_updated = parse_utc(new.get("updated_at"))
@@ -249,7 +259,7 @@ def _import_locked(connection: sqlite3.Connection, merged: dict[tuple[str, str, 
                 event_counts["source_update_events"] += 1
     if not dry_run:
         write_needed = counts["inserted"] > 0 or counts["updated"] > 0
-        if write_needed and before_write is not None:
+        if (write_needed or (sync_run is not None and sync_run.get('author_check'))) and before_write is not None:
             before_write()
         if write_needed:
             columns = ", ".join((*IDENTITY_FIELDS, *DB_FIELDS, "first_seen_at", "last_checked_at"))
@@ -293,6 +303,8 @@ def _import_locked(connection: sqlite3.Connection, merged: dict[tuple[str, str, 
                             event_counts["source_update_events"] += 1
         if sync_run is not None:
             error_summary = {
+                **({'web_sync': sync_run['web_sync']} if sync_run.get('web_sync') else {}),
+                **({'author_check': sync_run['author_check']} if sync_run.get('author_check') else {}),
                 "scan_errors": sync_run.get("errors", []),
                 "inserted": counts["inserted"],
                 "updated": counts["updated"],
@@ -319,7 +331,7 @@ def _import_locked(connection: sqlite3.Connection, merged: dict[tuple[str, str, 
 def import_samples(connection: sqlite3.Connection, snapshots: Iterable[tuple[dict[str, Any], list[dict[str, Any]]]],
                    dry_run: bool = True, now: str | None = None,
                    before_write: Callable[[], None] | None = None,
-                   sync_run: dict[str, Any] | None = None) -> dict[str, Any]:
+                   sync_run: dict[str, Any] | None = None, precondition=None) -> dict[str, Any]:
     merged, report = merge_snapshots(snapshots)
     now = now or datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
     if dry_run:
@@ -328,9 +340,12 @@ def import_samples(connection: sqlite3.Connection, snapshots: Iterable[tuple[dic
     # Keep the change decision, backup, and writes serialized under the same write lock.
     connection.execute("BEGIN IMMEDIATE")
     try:
+        if precondition is not None:
+            precondition(connection)
         result = _import_locked(connection, merged, report, False, now, before_write, sync_run)
         connection.commit()
         return result
     except Exception:
         connection.rollback()
         raise
+

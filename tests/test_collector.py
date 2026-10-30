@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from eryoutoolbox.gamebanana import collect_game, deduplicate  # noqa: E402
-from eryoutoolbox.models import normalize_record  # noqa: E402
+from eryoutoolbox.models import extract_preview_images, extract_preview_urls, normalize_record, valid_image_url  # noqa: E402
 
 
 GAME = {"name": "Genshin Impact", "game_id": 8552}
@@ -24,7 +24,7 @@ def record(**updates):
         "_sVersion": "1.0", "_aSubmitter": {"_idRow": 7, "_sName": "Author", "_sProfileUrl": "https://gamebanana.com/members/7"},
         "_aGame": {"_idRow": 8552}, "_aRootCategory": {"_sName": "Characters"},
         "_aSubCategory": {"_sName": "Skins"}, "_aTags": ["skin"],
-        "_aPreviewMedia": {"_sUrl": "https://images.example.test/preview.jpg"},
+        "_aPreviewMedia": {"_sUrl": "https://images.gamebanana.com/img/ss/mods/preview.jpg"},
         "_bHasContentRatings": False,
     }
     value.update(updates)
@@ -32,6 +32,112 @@ def record(**updates):
 
 
 class CollectorTests(unittest.TestCase):
+    def test_preview_complete_http_url(self):
+        url = "https://images.gamebanana.com/img/ss/mods/preview.jpg"
+        self.assertEqual(extract_preview_urls({"_sUrl": url}), [url])
+        self.assertTrue(valid_image_url(url))
+
+    def test_preview_base_and_filename(self):
+        media = {"_aImages": [{"_sBaseUrl": "https://images.gamebanana.com/img/ss/mods",
+                               "_sFile": "abc123.jpg"}]}
+        self.assertEqual(extract_preview_urls(media),
+                         ["https://images.gamebanana.com/img/ss/mods/abc123.jpg"])
+
+    def test_preview_multiple_images_preserve_order(self):
+        media = {"_aImages": [
+            {"_sBaseUrl": "https://images.gamebanana.com/img/ss/mods", "_sFile": "one.jpg"},
+            {"_sBaseUrl": "https://images.gamebanana.com/img/ss/mods", "_sFile": "two.jpg"},
+        ]}
+        self.assertEqual(extract_preview_urls(media), [
+            "https://images.gamebanana.com/img/ss/mods/one.jpg",
+            "https://images.gamebanana.com/img/ss/mods/two.jpg",
+        ])
+
+    def test_original_card_and_switch_thumbnail_are_separate(self):
+        media = {"_sBaseUrl": "https://images.gamebanana.com/img/ss/mods", "_aImages": [{
+            "_sFile": "original.jpg", "_sFile100": "100-90_small.jpg",
+            "_sFile220": "220-90_medium.jpg", "_sFile530": "530-90_card.jpg",
+        }]}
+        image = extract_preview_images(media)[0]
+        self.assertEqual(image, {
+            "image_url": "https://images.gamebanana.com/img/ss/mods/original.jpg",
+            "thumbnail_url": "https://images.gamebanana.com/img/ss/mods/530-90_card.jpg",
+            "switch_url": "https://images.gamebanana.com/img/ss/mods/100-90_small.jpg",
+            "original_verified": True,
+        })
+        self.assertEqual(extract_preview_urls(media), [image["thumbnail_url"]])
+        self.assertTrue(valid_image_url(image["image_url"]))
+
+    def test_missing_thumbnail_falls_back_to_original(self):
+        image = extract_preview_images({"_sBaseUrl": "https://images.gamebanana.com/img/ss/mods",
+                                       "_aImages": [{"_sFile": "original.jpg"}]})[0]
+        self.assertTrue(image["original_verified"])
+        self.assertEqual(image["thumbnail_url"], image["image_url"])
+        self.assertEqual(image["switch_url"], image["image_url"])
+
+    def test_missing_original_falls_back_to_available_thumbnail(self):
+        image = extract_preview_images({"_sBaseUrl": "https://images.gamebanana.com/img/ss/mods",
+                                       "_aImages": [{"_sFile100": "100-90_small.jpg"}]})[0]
+        self.assertEqual(image["image_url"], "https://images.gamebanana.com/img/ss/mods/100-90_small.jpg")
+        self.assertFalse(image["original_verified"])
+
+    def test_preview_prefers_available_card_thumbnail(self):
+        media = {"_aImages": [{"_sBaseUrl": "https://images.gamebanana.com/img/ss/mods",
+                               "_sFile": "full.jpg", "_sFile530": "530-card.jpg",
+                               "_sFile220": "220-card.jpg"}]}
+        self.assertEqual(extract_preview_urls(media)[0],
+                         "https://images.gamebanana.com/img/ss/mods/530-card.jpg")
+
+    def test_preview_falls_back_when_thumbnail_missing(self):
+        media = {"_aImages": [{"_sBaseUrl": "https://images.gamebanana.com/img/ss/mods",
+                               "_sFile": "full.jpg", "_sFile220": "220-card.jpg"}]}
+        self.assertEqual(extract_preview_urls(media)[0],
+                         "https://images.gamebanana.com/img/ss/mods/220-card.jpg")
+
+    def test_empty_preview_images(self):
+        self.assertEqual(extract_preview_urls({"_aImages": []}), [])
+        self.assertEqual(extract_preview_urls({"_aImages": None}), [])
+
+    def test_preview_filename_without_base_is_skipped(self):
+        self.assertEqual(extract_preview_urls({"_aImages": [{"_sFile": "orphan.jpg"}]}), [])
+
+    def test_invalid_and_unsafe_preview_urls_are_rejected(self):
+        bad = ["javascript:alert(1)", "https://localhost/a.jpg",
+               "https://user:pass@images.gamebanana.com/a.jpg",
+               "https://images.gamebanana.com/a/../b.jpg",
+               "file:///tmp/a.jpg", "https://bad host/a.jpg"]
+        for value in bad:
+            with self.subTest(value=value):
+                self.assertFalse(valid_image_url(value))
+                self.assertEqual(extract_preview_urls({"_sUrl": value}), [])
+
+    def test_duplicate_preview_urls_are_removed(self):
+        media = {"_aImages": [
+            {"_sBaseUrl": "https://images.gamebanana.com/img/ss/mods", "_sFile": "same.jpg"},
+            {"_sBaseUrl": "https://images.gamebanana.com/img/ss/mods", "_sFile": "same.jpg"},
+        ]}
+        self.assertEqual(extract_preview_urls(media),
+                         ["https://images.gamebanana.com/img/ss/mods/same.jpg"])
+
+    def test_mod_without_preview_metadata_has_empty_list(self):
+        self.assertEqual(normalize_record(record(_aPreviewMedia=None), GAME)["preview_urls"], [])
+
+    def test_preview_extraction_does_not_change_other_normalized_fields(self):
+        item = normalize_record(record(_aPreviewMedia={"_aImages": [{
+            "_sBaseUrl": "https://images.gamebanana.com/img/ss/mods", "_sFile": "x.jpg"}]}), GAME)
+        self.assertEqual(item["title"], "Sample")
+        self.assertEqual(item["author_name"], "Author")
+        self.assertEqual(item["content_rating_status"], "UNKNOWN")
+        self.assertEqual(item["preview_urls"], ["https://images.gamebanana.com/img/ss/mods/x.jpg"])
+
+    def test_normalized_image_metadata_preserves_unknown_rating(self):
+        media = {"_sBaseUrl": "https://images.gamebanana.com/img/ss/mods", "_aImages": [{
+            "_sFile": "original.jpg", "_sFile100": "100-90_thumb.jpg"}]}
+        item = normalize_record(record(_aPreviewMedia=media), GAME)
+        self.assertEqual(item["preview_images"][0]["image_url"],
+                         "https://images.gamebanana.com/img/ss/mods/original.jpg")
+        self.assertEqual(item["content_rating_status"], "UNKNOWN")
+
     def test_normal_list_parse_and_unknown_rating(self):
         item = normalize_record(record(), GAME)
         self.assertEqual(item["item_id"], 101)

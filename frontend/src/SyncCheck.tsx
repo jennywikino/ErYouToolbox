@@ -1,0 +1,38 @@
+import AutoSyncSettings from './AutoSyncSettings'
+import {useEffect,useState} from 'react'
+type Counts=Record<string,number>
+type Statistics={fetched:number;unique:number;duplicates:number;unclassified:number;classified:number;new:number;source_updated:number;metadata_only:number;unchanged:number;skipped:number}
+type GameResult={game_id:number;name:string;status:string;scanned:number;requests:number;report?:Counts;failures:unknown[];pages?:number[];scan_status?:string;statistics?:Statistics;missing_update_evidence?:number;checkpoint?:{frontier?:number;last_success_check_at?:string}}
+type Result={status:string;game_id?:number|null;token?:string;scanned?:number;requests?:number;error?:string;failures?:unknown[];report?:Counts;games?:GameResult[];current_game?:string;current_page?:number;completed?:number;planned?:number;statistics?:Statistics;scan_status?:string}
+export default function SyncCheck({game,onComplete}:{game:string;onComplete:()=>void}){
+ const [value,setValue]=useState<Result>({status:'idle'}),[error,setError]=useState(''),[sending,setSending]=useState(false),[pages,setPages]=useState(3)
+ const busy=sending||['checking','importing'].includes(value.status)
+ useEffect(()=>{let disposed=false;const poll=()=>fetch('/api/sync').then(r=>{if(!r.ok)throw Error('状态读取失败');return r.json()}).then(v=>{if(!disposed)setValue(v)}).catch(e=>{if(!disposed)setError(String(e))});poll();const t=setInterval(poll,1500);return()=>{disposed=true;clearInterval(t)}},[])
+ useEffect(()=>{if(['success','partial'].includes(value.status))onComplete()},[value.status,value.report?.sync_run_id])
+ async function send(action:string){setError('');setSending(true);try{
+  const body=action==='stop'?{action}:action==='check_all'?{action,max_pages:pages}:action==='check'?{action,game:Number(game),max_pages:pages}:action==='resume'?{action,game:value.game_id??null,max_pages:pages}:{action,game:value.game_id,token:value.token}
+  const r=await fetch('/api/sync',{method:'POST',headers:{'Content-Type':'application/json','X-ErYouToolbox':'1'},body:JSON.stringify(body)});const v=await r.json();if(!r.ok)throw Error(v.error);setValue(v)
+ }catch(e){setError(String(e))}finally{setSending(false)}}
+ const labels:Record<string,string>={idle:'尚未开始',checking:'正在检查',waiting:'等待确认',importing:'正在导入',success:'同步成功',partial:'部分成功',failed:'同步失败',discarded:'已放弃本次预览',stopped:'等待续扫',complete_check:'完整检查（仅本次来源末页）',incomplete:'扫描未完成',awaiting_resume:'等待续扫',rate_limited:'遇到限流',check_failed:'检查失败'}
+ const counts=(r?:Counts)=>r?`新增 ${r.inserted} · 来源更新 ${r.source_update_events} · 仅资料变化/证据不足 ${r.updated-r.source_update_events} · 无变化 ${r.unchanged} · 跳过 ${r.skipped}`:'暂无候选'
+ const stats=(s?:Statistics)=>s?`原始记录 ${s.fetched} = 已分类 ${s.classified} + 重复 ${s.duplicates} + 未能分类 ${s.unclassified}；去重 ${s.unique}`:''
+ return <section className="mb-4 rounded border border-slate-200 p-3 text-sm">
+  <AutoSyncSettings/>
+  <button className="small-button" disabled={!game||busy} onClick={()=>send('check')}>检查当前游戏</button>
+  <button className="small-button ml-3" disabled={busy} onClick={()=>send('check_all')}>检查全部游戏</button>
+  <label className="ml-3">每游戏最多页数 <select aria-label="同步页数上限" value={pages} disabled={busy} onChange={e=>setPages(Number(e.target.value))}>{Array.from({length:10},(_,i)=><option key={i+1}>{i+1}</option>)}</select></label>
+  {value.status==='checking'&&<button className="small-button ml-3" disabled={sending} onClick={()=>send('stop')}>停止（当前请求结束后）</button>}
+  {!busy&&value.status!=='idle'&&<button className="small-button ml-3" onClick={()=>send('resume')}>继续扫描（重叠复查）</button>}
+  {!game&&<span> 当前游戏检查需先选择具体游戏</span>}
+  <span className="ml-3">{labels[value.status]||value.status} · {labels[value.scan_status||'']}</span>
+  {value.current_game&&<span> · {value.current_game} 第 {value.current_page} 页 · 已完成 {value.completed||0} 款</span>}
+  {value.status==='waiting'&&!busy&&(value.game_id===null||value.game_id===Number(game))&&<button className="small-button ml-3" onClick={()=>send('confirm')}>确认导入{value.game_id===null?'（全部已验证候选）':''}</button>}
+  {value.status==='waiting'&&!busy&&<button className="small-button ml-3" onClick={()=>send('discard')}>放弃本次预览</button>}
+  <p>默认每游戏最多 3 页；当前游戏每页最多 20 条，全部游戏每页最多 10 条。Coverage=incomplete，不保证无遗漏。预览十分钟有效；未提交续扫会重新检查，只有确认提交才推进正式检查点。</p>
+  {value.games?.map(g=><div key={g.game_id} className="mt-2"><p>{g.name} · {labels[g.scan_status||'']||g.status} · 已检查页 {g.pages?.join(', ')||'无'} · 请求 {g.requests} · {counts(g.report)} · 失败 {g.failures.length}</p><p>{stats(g.statistics)} · 缺更新时间证据 {g.missing_update_evidence??0} · 上次成功检查 {g.checkpoint?.last_success_check_at||'无'}</p>{g.failures.length>0&&<p role="alert">{JSON.stringify(g.failures)}</p>}</div>)}
+  {value.report&&<p className="mt-2 font-medium">总计：{stats(value.statistics)} · 请求 {value.requests} · {counts(value.report)} · 失败/未执行 {value.failures?.length||0} · 已检查 {value.completed}/{value.planned} 款</p>}
+  {(error||value.error)&&<p role="alert">{error||value.error}</p>}
+ </section>
+}
+
+

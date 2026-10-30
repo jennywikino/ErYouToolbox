@@ -1,0 +1,73 @@
+{
+  "source": "https://gamebanana.com/apiv11/Mod/ListFilterConfig",
+  "options": [
+    {
+      "_sAlias": "-",
+      "_sTitle": "Unrated"
+    },
+    {
+      "_sAlias": "cp",
+      "_sTitle": "Crude or Profane"
+    },
+    {
+      "_sAlias": "st",
+      "_sTitle": "Sexual Themes"
+    },
+    {
+      "_sAlias": "sc",
+      "_sTitle": "Sexual Content"
+    },
+    {
+      "_sAlias": "bg",
+      "_sTitle": "Blood and Gore"
+    },
+    {
+      "_sAlias": "au",
+      "_sTitle": "Alcohol Use"
+    },
+    {
+      "_sAlias": "tu",
+      "_sTitle": "Tobacco Use"
+    },
+    {
+      "_sAlias": "du",
+      "_sTitle": "Drug Use"
+    },
+    {
+      "_sAlias": "ps",
+      "_sTitle": "Flashing Lights & Patterns"
+    },
+    {
+      "_sAlias": "sa",
+      "_sTitle": "Skimpy Attire"
+    },
+    {
+      "_sAlias": "lp",
+      "_sTitle": "Lewd Angles & Poses"
+    },
+    {
+      "_sAlias": "pn",
+      "_sTitle": "Partial Nudity"
+    },
+    {
+      "_sAlias": "nu",
+      "_sTitle": "Full Nudity"
+    },
+    {
+      "_sAlias": "iv",
+      "_sTitle": "Intense Violence"
+    },
+    {
+      "_sAlias": "ft",
+      "_sTitle": "Fetishistic"
+    },
+    {
+      "_sAlias": "rp",
+      "_sTitle": "Rating Pending"
+    },
+    {
+      "_sAlias": "UNKNOWN",
+      "_sTitle": "UNKNOWN · 尚未验证"
+    }
+  ]
+}

@@ -226,6 +226,14 @@ class ImporterTests(unittest.TestCase):
         self.assertTrue(result["dry_run"])
         self.assertEqual(self.count("mods"), 0)
 
+    def test_rich_preview_objects_fit_existing_json_column(self):
+        image = {"image_url": "https://images.gamebanana.com/img/ss/mods/original.jpg",
+                 "thumbnail_url": "https://images.gamebanana.com/img/ss/mods/530-90_card.jpg",
+                 "switch_url": "https://images.gamebanana.com/img/ss/mods/100-90_small.jpg"}
+        self.import_one(record(preview_urls=[image["thumbnail_url"]], preview_images=[image]))
+        stored = self.connection.execute("SELECT preview_urls_json FROM mods").fetchone()[0]
+        self.assertEqual(json.loads(stored), [image])
+
     def test_older_snapshot_cannot_overwrite_newer_data(self):
         self.import_one(record(title="New"), minutes=5)
         result = self.import_one(record(title="Old"), minutes=1)

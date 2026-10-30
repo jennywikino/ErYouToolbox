@@ -10,10 +10,15 @@ from pathlib import Path
 import sqlite3
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 3
 BUSY_TIMEOUT_MS = 5000
 
 MIGRATIONS = {
+    3: ('ALTER TABLE user_states ADD COLUMN first_viewed_at TEXT',),
+    2: ("""CREATE TABLE author_subscriptions (
+        source TEXT NOT NULL, author_id INTEGER NOT NULL CHECK(author_id>0),
+        display_name TEXT, followed_at TEXT NOT NULL,
+        PRIMARY KEY(source,author_id))""",),
     1: (
         """CREATE TABLE IF NOT EXISTS mods (
             source TEXT NOT NULL,
@@ -100,7 +105,7 @@ def connect_database(path: str | Path) -> sqlite3.Connection:
     return connection
 
 
-def initialize_database(path: str | Path) -> None:
+def initialize_database(path: str | Path, *, before_migration=None) -> None:
     """Create missing schema objects and apply known migrations atomically."""
     connection = connect_database(path)
     try:
@@ -111,6 +116,10 @@ def initialize_database(path: str | Path) -> None:
             )
         connection.execute("BEGIN IMMEDIATE")
         try:
+            if 0 < version < SCHEMA_VERSION:
+                if before_migration is None:
+                    raise RuntimeError('Explicit verified backup required; run scripts/migrate_subscriptions.py --apply')
+                before_migration()
             for migration_version in range(version + 1, SCHEMA_VERSION + 1):
                 statements = MIGRATIONS.get(migration_version)
                 if statements is None:
@@ -119,7 +128,7 @@ def initialize_database(path: str | Path) -> None:
                     connection.execute(statement)
                 connection.execute(f"PRAGMA user_version = {migration_version}")
             connection.commit()
-        except Exception:
+        except BaseException:
             connection.rollback()
             raise
     finally:
