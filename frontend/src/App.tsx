@@ -1,4 +1,6 @@
+import {MyAuthors,AuthorHeader,type Author} from './Authors'
 import SyncCheck from './SyncCheck'
+import {requestStartupCheck} from './autoStartup'
 import { useEffect, useState, useRef, type FormEvent } from 'react'
 import type { Game, Mod, ModPage } from './types'
 import Icon from './Icons'
@@ -6,9 +8,10 @@ import PreviewCard from './PreviewCard'
 import ModDetail from './ModDetail'
 import AuthorUpdateCheck from './AuthorUpdateCheck'
 import PopularPanel, {type PopularView} from './PopularPanel'
-import { syncTimeLabel, syncStatusLabel, restoreScrollTop, restorePopularView, validBrowseSnapshot } from './policy'
+import { syncTimeLabel, syncStatusLabel, restoreScrollTop, restorePopularView, validBrowseSnapshot, listingPreferences, resizedPage } from './policy'
 
-const PAGE_SIZE = 18
+const LISTING_KEY='eryouListing'
+function savedListing(){try{return listingPreferences(JSON.parse(localStorage.getItem(LISTING_KEY)||'null'))}catch{return listingPreferences(null)}}
 
 async function read<T>(url: string, signal: AbortSignal): Promise<T> {
   const response = await fetch(url, { signal })
@@ -28,6 +31,7 @@ function detailIdentity(hash: string) {
 export default function App() {
   const [games, setGames] = useState<Game[]>([])
   const [game, setGame] = useState('')
+  const [author,setAuthor]=useState<Author|null>(null)
   const [draft, setDraft] = useState('')
   const [search, setSearch] = useState('')
   const [sort, setSort] = useState('created')
@@ -36,8 +40,13 @@ export default function App() {
   const [feedRevision, setFeedRevision] = useState(0)
   const [readFilter,setReadFilter]=useState('all')
   const [page, setPage] = useState(0)
+  const [viewMode,setViewMode]=useState(()=>savedListing().viewMode)
+  const [pageSize,setPageSize]=useState(()=>savedListing().pageSize)
+  const gridRef=useRef<HTMLDivElement>(null)
+  const [firstRow,setFirstRow]=useState(3)
   const [withImages, setWithImages] = useState(false)
   const [allowUnknown, setAllowUnknown] = useState(() => localStorage.getItem("showPreviewImages") !== "0")
+  const [ratingsOpen,setRatingsOpen]=useState(false)
   const [ratingOptions, setRatingOptions] = useState<{_sAlias: string; _sTitle: string}[]>([])
   const [ratings, setRatings] = useState<string[] | null>(null)
   const [data, setData] = useState<ModPage | null>(null)
@@ -52,14 +61,33 @@ export default function App() {
   const isDetail = identity !== null
   const listRef=useRef<HTMLDivElement>(null)
   const [renderKey,setRenderKey]=useState('')
-  const listKey=JSON.stringify([feed,game,search,sort,ratings,readFilter,page,withImages,allowUnknown])
-  const currentView={feed,game,draft,search,sort,ratings,readFilter,page,withImages,allowUnknown,popular}
+  const listKey=JSON.stringify([feed,game,search,sort,ratings,readFilter,page,pageSize,withImages,allowUnknown,author])
+  const currentView={feed,game,draft,search,sort,ratings,readFilter,page,pageSize,viewMode,withImages,allowUnknown,popular,author}
   const viewRef=useRef(currentView);viewRef.current=currentView
   type SavedView=typeof currentView & {scrollY:number;anchor:string;anchorTop:number;anchorGame?:number}
   const pendingRestore=useRef<SavedView|null>(null)
-  const applyView=(v:SavedView)=>{setFeed(v.feed);setGame(v.game);setDraft(v.draft);setSearch(v.search);setSort(v.sort);setRatings(v.ratings);setReadFilter(v.readFilter);setPage(v.page);setWithImages(v.withImages);setAllowUnknown(v.allowUnknown);setPopular(v.popular)}
-  const resetList=()=>{pendingRestore.current=null;history.replaceState({...history.state,eryouView:null},'');window.location.hash='';window.scrollTo({top:0,behavior:'instant'})}
+  const applyView=(v:SavedView)=>{setAuthor(v.author||null);setFeed(v.feed);setGame(v.game);setDraft(v.draft);setSearch(v.search);setSort(v.sort);setRatings(v.ratings);setReadFilter(v.readFilter);setPage(v.page);setPageSize(v.pageSize);setViewMode(v.viewMode);setWithImages(v.withImages);setAllowUnknown(v.allowUnknown);setPopular(v.popular)}
+  const resetList=(leaveAuthor=false)=>{pendingRestore.current=null;history.replaceState({...history.state,eryouView:null},'');window.location.hash=!leaveAuthor&&viewRef.current.author?`#/author/${encodeURIComponent(viewRef.current.author.source)}/${viewRef.current.author.author_id}`:'';window.scrollTo({top:0,behavior:'instant'})}
   const returnToList=()=>{if(history.state?.eryouView){history.back()}else resetList()}
+  const refreshLibrary=()=>{
+    if(!isDetail&&feed!=='popular'&&!pendingRestore.current){
+      const anchor=Array.from(listRef.current?.querySelectorAll<HTMLElement>('[data-mod-identity]')||[]).find(el=>el.getBoundingClientRect().bottom>0)
+      pendingRestore.current={...viewRef.current,scrollY:window.scrollY,anchor:anchor?.dataset.modIdentity||'',anchorTop:anchor?.getBoundingClientRect().top||0}
+    }
+    setFeedRevision(v=>v+1)
+  }
+
+  // Independent of library queries; never delay local first paint or cancel a
+  // server-owned job when navigating away from this page.
+  useEffect(()=>{requestStartupCheck().catch(e=>window.dispatchEvent(new CustomEvent('auto-sync-error',{detail:String(e)})))},[])
+  useEffect(()=>{try{localStorage.setItem(LISTING_KEY,JSON.stringify({viewMode,pageSize}))}catch{/* Storage may be disabled; browsing still works. */}},[viewMode,pageSize])
+  useEffect(()=>{
+    if(!gridRef.current||feed==='popular'||isDetail)return
+    const grid=gridRef.current
+    const update=()=>setFirstRow(Math.max(1,getComputedStyle(grid).gridTemplateColumns.split(/\s+/).length))
+    update();const observer=new ResizeObserver(update);observer.observe(grid)
+    return()=>observer.disconnect()
+  },[viewMode,feed,isDetail])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -71,8 +99,10 @@ export default function App() {
     const previousScroll=history.scrollRestoration;history.scrollRestoration='manual'
     const onHash = () => {
       const old=validBrowseSnapshot(history.state?.eryouView)?history.state.eryouView as SavedView:undefined
-      const v=old?{...old,popular:restorePopularView(old.popular)}:undefined
+      const preferences=listingPreferences({...savedListing(),...old})
+      const v=old?{...old,...preferences,page:old.pageSize?old.page:Math.floor(old.page*18/preferences.pageSize),author:old.author||null,popular:restorePopularView(old.popular)}:undefined
       if(v){applyView(v);pendingRestore.current=v}
+      if(!v&&window.location.hash.startsWith('#/author/')){const parts=window.location.hash.split('/');const id=Number(parts[3]);if(Number.isSafeInteger(id)&&id>0){setAuthor({source:decodeURIComponent(parts[2]),author_id:id});setFeed('latest')}}
       setHash(window.location.hash)
       if(window.location.hash.includes('/mod/'))window.scrollTo({top:0,behavior:'instant'})
     }
@@ -85,20 +115,21 @@ export default function App() {
     if (feed === 'popular' || isDetail) return
     const controller = new AbortController()
     const params = new URLSearchParams({
-      game, search, sort, feed, read:readFilter, limit: String(PAGE_SIZE), offset: String(page * PAGE_SIZE),
+      game, search, sort, feed, read:readFilter, limit: String(pageSize), offset: String(page * pageSize),
       with_images: withImages ? '1' : '0', show_unrated: allowUnknown ? '1' : '0',
     })
+    if(author){params.set('author_source',author.source);params.set('author_id',String(author.author_id))}
     if (ratings !== null) params.set("ratings", ratings.join(","))
     setLoading(true); setError('')
-    read<ModPage>('/api/mods?' + params, controller.signal).then(value=>{if(controller.signal.aborted)return;setRenderKey(listKey);setData(value);const last=Math.max(0,Math.ceil(value.total_count/PAGE_SIZE)-1);if(page>last)setPage(last)})
+    read<ModPage>('/api/mods?' + params, controller.signal).then(value=>{if(controller.signal.aborted)return;setRenderKey(listKey);setData(value);const last=Math.max(0,Math.ceil(value.total_count/pageSize)-1);if(page>last)setPage(last)})
       .catch(error => { if (error.name !== 'AbortError') setError(error.message) })
       .finally(() => { if (!controller.signal.aborted) setLoading(false) })
     return () => controller.abort()
-  }, [game, search, sort, page, withImages, allowUnknown, revision, ratings, feed, feedRevision,readFilter,isDetail])
+  }, [game, search, sort, page, pageSize, withImages, allowUnknown, revision, ratings, feed, feedRevision,readFilter,isDetail,author])
 
   useEffect(()=>{
     const saved=pendingRestore.current
-    if(isDetail||!saved||JSON.stringify(viewRef.current)!==JSON.stringify(Object.fromEntries(Object.entries(saved).filter(([k])=>!['scrollY','anchor','anchorTop','anchorGame'].includes(k)))))return
+    if(isDetail||!saved||Object.entries(viewRef.current).some(([key,value])=>JSON.stringify(value)!==JSON.stringify(saved[key as keyof SavedView])))return
     let timer:number|undefined,frame=0,stopped=false
     const restore=()=>{
       if(stopped)return
@@ -116,7 +147,7 @@ export default function App() {
     const stop=()=>{stopped=true;pendingRestore.current=null;observer.disconnect();mutation.disconnect();cancelAnimationFrame(frame)}
     window.addEventListener('wheel',stop,{once:true});window.addEventListener('pointerdown',stop,{once:true});window.addEventListener('keydown',stop,{once:true})
     return()=>{stopped=true;clearTimeout(timer);observer.disconnect();mutation.disconnect();cancelAnimationFrame(frame);window.removeEventListener('wheel',stop);window.removeEventListener('pointerdown',stop);window.removeEventListener('keydown',stop)}
-  },[isDetail,loading,data,feed,game,page,renderKey,listKey,popular])
+  },[isDetail,loading,data,feed,game,page,renderKey,listKey,popular,viewMode])
 
   useEffect(() => {
     if (!identity) { setDetail(null); setDetailError(''); return }
@@ -137,8 +168,20 @@ export default function App() {
     setHash(window.location.hash)
     window.scrollTo({ top: 0, behavior: 'instant' })
   }
+  const openAuthor=(a:Author)=>{
+    const next:SavedView={...viewRef.current,author:a,feed:'latest',game:'',draft:'',search:'',sort:'created',page:0,scrollY:0,anchor:'',anchorTop:0}
+    history.pushState({eryouView:next},'',`#/author/${encodeURIComponent(a.source)}/${a.author_id}`);applyView(next);setHash(window.location.hash);window.scrollTo(0,0)
+  }
   const submitSearch = (event: FormEvent) => { event.preventDefault(); setSearch(draft.trim()); setPage(0); resetList() }
-  const pageCount = Math.max(1, Math.ceil((data?.total_count || 0) / PAGE_SIZE))
+  const changeListing=(mode:typeof viewMode,size:typeof pageSize)=>{
+    if(mode===viewMode&&size===pageSize)return
+    const nextPage=size===pageSize?page:resizedPage(page,pageSize,size,data?.total_count||0)
+    const cards=Array.from(gridRef.current?.querySelectorAll<HTMLElement>('[data-mod-identity]')||[])
+    const anchor=size!==pageSize?cards[0]:cards.find(el=>el.getBoundingClientRect().bottom>0)
+    pendingRestore.current={...viewRef.current,viewMode:mode,pageSize:size,page:nextPage,scrollY:window.scrollY,anchor:anchor?.dataset.modIdentity||'',anchorTop:anchor?.getBoundingClientRect().top||0}
+    setViewMode(mode);setPageSize(size);setPage(nextPage)
+  }
+  const pageCount = Math.max(1, Math.ceil((data?.total_count || 0) / pageSize))
   const categories = [...new Set(data?.items.map(item => item.category).filter((name): name is string => !!name))]
   const currentGame = games.find(item => String(item.game_id) === game)?.name || '全部游戏'
 
@@ -170,27 +213,29 @@ export default function App() {
       <div className="content-shell">
         <main className="main-content">
           <nav aria-label="作品发现分区" className="mb-6 flex flex-wrap gap-6 border-b border-slate-200 text-sm">
-            <button aria-current={feed === 'subscriptions' ? 'page' : undefined} className={`pb-3 ${feed === 'subscriptions' ? 'border-b-2 border-violet-500 font-semibold text-violet-700' : 'text-slate-500'}`} onClick={() => {setFeed('subscriptions'); setSort('created'); setPage(0); resetList()}}>订阅动态</button>
-            <button aria-current={feed === 'latest' ? 'page' : undefined} className={`pb-3 ${feed === 'latest' ? 'border-b-2 border-violet-500 font-semibold text-violet-700' : 'text-slate-500'}`} onClick={() => {setFeed('latest'); setPage(0); resetList()}}>最新 MOD</button>
-            <button aria-current={feed === 'popular' ? 'page' : undefined} className={`pb-3 ${feed === 'popular' ? 'border-b-2 border-violet-500 font-semibold text-violet-700' : 'text-slate-500'}`} onClick={()=>{setFeed('popular');resetList()}}>热门 MOD</button>
+            <button aria-current={feed === 'subscriptions' ? 'page' : undefined} className={`pb-3 ${feed === 'subscriptions' ? 'border-b-2 border-violet-500 font-semibold text-violet-700' : 'text-slate-500'}`} onClick={() => {setAuthor(null);setFeed('subscriptions'); setSort('created'); setPage(0); resetList(true)}}>订阅动态</button>
+            <button aria-current={feed === 'latest' ? 'page' : undefined} className={`pb-3 ${feed === 'latest' ? 'border-b-2 border-violet-500 font-semibold text-violet-700' : 'text-slate-500'}`} onClick={() => {setAuthor(null);setFeed('latest'); setPage(0); resetList(true)}}>最新 MOD</button>
+            <button aria-current={feed === 'popular' ? 'page' : undefined} className={`pb-3 ${feed === 'popular' ? 'border-b-2 border-violet-500 font-semibold text-violet-700' : 'text-slate-500'}`} onClick={()=>{setAuthor(null);setFeed('popular');resetList(true)}}>热门 MOD</button>
           </nav>
           {configError && <div className="error-banner">{configError}</div>}
+          <div hidden={feed!=='latest'||isDetail}><SyncCheck game={game} onComplete={refreshLibrary}/></div>
           <div ref={listRef} hidden={isDetail}>{feed === 'popular' ? <PopularPanel games={games} game={game} search={search} ratings={ratings} allowUnknown={allowUnknown} onOpen={openMod} view={popular} onViewChange={setPopular} paused={isDetail}/> : <>
-            {feed === 'latest' && <SyncCheck game={game} onComplete={()=>setFeedRevision(v=>v+1)}/>}
-            {feed === 'subscriptions' && <AuthorUpdateCheck />}
+            {feed === 'subscriptions' && <><MyAuthors revision={feedRevision} onOpen={openAuthor} onChange={()=>setFeedRevision(v=>v+1)}/><AuthorUpdateCheck /></>}
+            {author&&<AuthorHeader key={`${author.source}:${author.author_id}`} author={author} onChange={()=>setFeedRevision(v=>v+1)}/>}
             <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
               <div><p className="section-kicker">二游工具盒 · 本地浏览</p>
-                <h1 className="mt-2 text-2xl font-semibold tracking-tight text-slate-900">{feed === 'subscriptions' ? '订阅动态' : '最新 MOD'}<span className="text-violet-500">。</span></h1>
+                <h1 className="mt-2 text-2xl font-semibold tracking-tight text-slate-900">{author?'作者作品':feed === 'subscriptions' ? '订阅动态' : '最新 MOD'}<span className="text-violet-500">。</span></h1>
                 {feed === 'subscriptions' && <p className="mt-2 text-xs text-slate-500">仅显示已关注作者的本地作品 · 包含关注前历史作品 · 非实时追踪 · 最近更新仅含 source_updated 事件</p>}
                 <p className="mt-2 text-xs text-slate-500">{currentGame} · {withImages ? '优先浏览已保存图片的作品' : '浏览全部已收录作品'}</p>
                 <p className="mt-2 text-xs text-slate-500">{sort === 'updated' ? '最近来源更新 · 仅显示具有来源更新时间的作品' : sort === 'first_seen' ? '本地首次发现 · 不代表来源新发布' : '新发布 · 按来源发布时间排序'}</p>
-                {data?.discovery && <div className="mt-3 space-y-1 text-[11px] leading-5 text-slate-400">
+                {data?.discovery && <details className="mt-3 space-y-1 text-[11px] leading-5 text-slate-400">
+                  <summary className="cursor-pointer">本地收录 {data.discovery.local_count} 条 · 同步记录</summary>
                   <p>本地收录 {data.discovery.local_count} 条 · 不代表来源全量 · 时间范围完整性未验证</p>
                   <p>最近一条同步记录：{data.discovery.last_sync
                     ? `${syncTimeLabel(data.discovery.last_sync.ended_at || data.discovery.last_sync.started_at)} · ${syncStatusLabel(data.discovery.last_sync.status)} · 游戏 ${data.discovery.last_sync.game_id ?? '未指定'}`
                     : '暂无同步记录'}</p>
                   {!game && <p>全部游戏模式展示任一游戏最近一条记录，不代表六游戏同时完成。</p>}
-                </div>}
+                </details>}
               </div>
               <div className="pagination">
                 <button aria-label="上一页" disabled={page === 0 || loading} onClick={() => setPage(page - 1)}><Icon name="left" /></button>
@@ -209,19 +254,21 @@ export default function App() {
                   <option value="created">最近发布 · 来源发布时间</option><option value="updated">最近来源更新</option>{feed !== 'subscriptions' && <option value="first_seen">本地首次发现</option>}
                 </select>
               </label>
+              <div className="view-switch density-switch" aria-label="列表密度">{(['standard','compact'] as const).map(mode=><button key={mode} aria-pressed={viewMode===mode} className={viewMode===mode?'selected':''} onClick={()=>changeListing(mode,pageSize)}>{mode==='standard'?'标准视图':'紧凑视图'}</button>)}</div>
+              <label className="page-size-control">每页 <select aria-label="每页作品数量" disabled={loading} value={pageSize} onChange={e=>changeListing(viewMode,listingPreferences({pageSize:Number(e.target.value)}).pageSize)}>{[15,25,50].map(n=><option value={n} key={n}>{n} 件</option>)}</select></label>
             </div>
             {loading && !data && <div className="empty-state" role="status">正在读取本地作品…</div>}
             {error && <div className="error-banner" role="alert">{error}<button className="small-button mt-3" onClick={() => setRevision(revision + 1)}>重新读取</button></div>}
             {!loading && !error && data?.items.length === 0 && <div className="empty-state"><Icon name="folder" /><h2>这里还没有符合条件的作品</h2>
               <p>{feed === 'subscriptions' ? '可以在作品详情中关注作者；也可调整游戏、搜索或分级条件。' : '试试“全部作品”，或调整游戏与搜索条件。'}</p></div>}
-            <div className="mod-grid">
+            <div ref={gridRef} className={`mod-grid${viewMode==='compact'?' compact-grid':''}`}>
               {data?.items.map((mod,index) => <PreviewCard key={`${mod.source}:${mod.item_type}:${mod.item_id}:${allowUnknown}`}
-                mod={mod} priority={index<3} allowUnknown={allowUnknown} timeMode={sort} onOpen={() => openMod(mod)} onReadChange={()=>setFeedRevision(value=>value+1)} />)}
+                mod={mod} compact={viewMode==='compact'} priority={index<firstRow} allowUnknown={allowUnknown} timeMode={sort} onOpen={() => openMod(mod)} onReadChange={()=>setFeedRevision(value=>value+1)} />)}
             </div>
-            {data && <p className="mt-6 text-xs text-slate-400">匹配 {data.total_count} 条 · 本页 {data.items.length} 条 · 每次最多读取 20 条</p>}
+            {data && <p className="mt-6 text-xs text-slate-400">匹配 {data.total_count} 条 · 本页 {data.items.length} 条 · 每页 {pageSize} 件（上限 50）</p>}
           </>}</div>
           {isDetail && (detailError ? <div className="error-banner">{detailError}<button onClick={returnToList} className="back-link mt-4">返回作品库</button></div>
-            : detail ? <ModDetail key={`${detail.source}:${detail.item_type}:${detail.item_id}:${allowUnknown}`} mod={detail} allowUnknown={allowUnknown} onBack={returnToList} onFollowChange={() => setFeedRevision(value => value + 1)} />
+            : detail ? <ModDetail key={`${detail.source}:${detail.item_type}:${detail.item_id}:${allowUnknown}`} mod={detail} ratings={ratings} allowUnknown={allowUnknown} onOpenAuthor={openAuthor} onOpenMod={openMod} onBack={returnToList} onFollowChange={() => setFeedRevision(value => value + 1)} />
             : <div className="empty-state" role="status">正在读取作品详情…</div>)}
         </main>
         <aside className="category-panel">
@@ -234,7 +281,8 @@ export default function App() {
             </label>
           </div>
           <section className="border-t border-slate-100 pt-6">
-            <h2 className="text-sm font-semibold">内容分级</h2>
+            <button className="filter-heading" aria-expanded={ratingsOpen} aria-controls="rating-options" onClick={()=>setRatingsOpen(!ratingsOpen)}><span>内容分级</span><span>{ratings===null||ratings.length===ratingOptions.length?'全部已选':`已选 ${ratings.length}`}{ratingsOpen?' ▴':' ▾'}</span></button>
+            <div id="rating-options" hidden={!ratingsOpen}>
             <p className="my-2 text-xs text-slate-500">来源标签，多选按 OR 筛选；与人工转载审核无关。</p>
             <div className="my-3 flex gap-3 text-xs">
               <button onClick={() => { setRatings(null); setPage(0) }}>全选</button>
@@ -247,6 +295,7 @@ export default function App() {
                 setRatings(event.target.checked ? [...current, option._sAlias] : current.filter(code => code !== option._sAlias)); setPage(0)
               }} />{option._sTitle}
             </label>)}
+            </div>
           </section>
           <div className="border-t border-slate-100 pt-6"><h2 className="flex items-center gap-2 text-sm font-semibold"><Icon name="folder" />分类</h2>
             <p className="mt-2 text-xs leading-6 text-slate-400">当前返回作品中已保存的分类。</p>

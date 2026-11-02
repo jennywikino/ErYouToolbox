@@ -72,3 +72,14 @@ htmlcov/
 .DS_Store
 cookies*.json
 cookies*.txt
+
+# Public-source preparation: local identity, internal handoff, temp artifacts
+config/project_identity.json
+PROJECT_STATUS.md
+docs/OB*.md
+docs/ENGINEERING_DAY1.md
+docs/V0_4_0_RC1_BASELINE.md
+tmp*/
+*.zip
+*.7z
+*.har

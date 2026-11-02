@@ -1,20 +1,84 @@
 # ErYouToolbox（二游工具盒）
 
-V0.1 - Step 01：最小 Python 项目与 GameBanana 公开 API 可行性探测。
+面向 GameBanana 公开 MOD 信息的本地整理工具，使用 Python、SQLite 与 React / TypeScript。数据保存在本机；不登录来源站点，不下载 MOD 文件，不提供转载授权。目标代码仓库：`jennywikino/ErYouToolbox`。
 
-## 初始化
+当前为开发候选版本，尚未发布稳定版。前端包版本仍为 0.3.0，历史本地标签 v0.4.0-rc1 仅代表旧源码基线。
 
-在项目根目录运行：
+## 已实现
+
+- 公开 API 信息采集与 SQLite 保存，多游戏配置、查询及有界增量同步。
+- React 作品列表、搜索、详情与图片展示，已阅状态和作者关注。
+- 同步预览、用户确认入库、默认关闭的自动检查与本机任务管理。
+- 本机启动/停止脚本、数据库备份与临时恢复验证工具；保留可选 Streamlit 界面。
+
+“已实现”指源码存在，不表示所有生产或跨电脑场景均已验收。图片通过来源 URL 展示，来源可用性和内容权利由来源决定。
+
+## 开发中与已知限制
+
+- 作者轮转、作者作品页、启动检查、渐进历史扫描和定向图片修复已有候选实现，仍需真实场景验收。
+- 2026-11-02 已通过独立设备完整备份及临时恢复验收；备份前须暂停全部写入，失效预览通过正常界面处理，勿直接改写状态文件绕过检查。
+- 跨电脑盘符变化、Windows 计划任务权限及完整恢复流程尚待实机确认。
+- 未提供桌面安装包、账号登录、MOD 下载或稳定版发布保证。
+- Python 依赖尚未全部固定版本，安装结果不是严格可复现构建。
+
+## Windows 本地运行
+
+需要 Python 3、PowerShell 5.1+、Node.js 22.12+ 和 pnpm。以下命令均在项目根目录执行；项目可放在移动硬盘，勿在脚本中固定盘符。
 
 ```powershell
 .\scripts\bootstrap.ps1
+$python = Join-Path $env:LOCALAPPDATA 'ErYouToolbox\venv\Scripts\python.exe'
+& $python scripts\init_db.py
+pnpm.cmd --dir frontend install --frozen-lockfile
 ```
 
-## API 探测
+首次使用公开源码副本时，为该副本生成本地身份文件；不要覆盖已有项目身份：
 
 ```powershell
-.\scripts\run_probe.ps1
+if (-not (Test-Path config\project_identity.json)) {
+    @{ project_id = [guid]::NewGuid().ToString(); name = 'ErYouToolbox' } |
+        ConvertTo-Json | Set-Content config\project_identity.json -Encoding UTF8
+    # Windows PowerShell 5.1 的 UTF8 会写 BOM，转换为 Python 可读取的无 BOM UTF-8。
+    $identityPath = Join-Path (Get-Location) 'config\project_identity.json'
+    [IO.File]::WriteAllText($identityPath, (Get-Content $identityPath -Raw), (New-Object Text.UTF8Encoding($false)))
+}
 ```
 
-探测只访问公开 API，不登录、不下载 MOD 或图片。结果会输出到控制台；运行日志只记摘要，不保存大量原始响应。
+启动 API 与网页（分别在两个终端）：
 
+```powershell
+$python = Join-Path $env:LOCALAPPDATA 'ErYouToolbox\venv\Scripts\python.exe'
+& $python scripts\react_api.py
+```
+
+```powershell
+pnpm.cmd --dir frontend dev
+```
+
+浏览器访问 `http://127.0.0.1:5173`，API 监听 `127.0.0.1:8766`。初始化数据库为空，不附带个人数据。也可使用根目录 `start_toolbox.cmd` / `stop_toolbox.cmd` 管理本机服务。自动同步保持关闭，按需在本机配置；不要复制另一台电脑的任务授权、PID 或登录配置。
+
+可选 Streamlit 界面需单独安装 `requirements-ui.txt` 中的依赖：
+
+```powershell
+& $python -m pip install -r requirements-ui.txt
+.\scripts\run_ui.ps1
+```
+
+## 验证
+
+```powershell
+$python = Join-Path $env:LOCALAPPDATA 'ErYouToolbox\venv\Scripts\python.exe'
+& $python -m unittest discover -s tests
+pnpm.cmd --dir frontend test
+pnpm.cmd --dir frontend build
+```
+
+测试应使用临时数据。生产网络采集、确认入库、任务注册及恢复需单独验收，勿将单元测试通过等同于生产验证。
+
+## 数据、隐私与交接
+
+公开源码不包含数据库、日志、原始响应、备份、凭据、个人项目身份、浏览器配置、缓存或内部验收记录。`.gitignore` 只是后续保护，不能移除已经进入历史的内容。发布候选采用独立源码快照，不携带原工作目录的 `.git` 历史。
+
+`AGENTS.md` 是跨电脑交接说明，须随源码保留。新电脑创建本机 `%LOCALAPPDATA%\ErYouToolbox\venv`，不把虚拟环境放在移动硬盘内。源码副本不等于数据备份；恢复前先暂停所有写入，保留旧数据，使用临时目录验证。
+
+当前未指定开源许可证；公开可见不等同于授权任意使用。发布前由维护者确定许可证及最终发布范围。

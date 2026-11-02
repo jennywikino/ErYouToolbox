@@ -57,14 +57,14 @@ class ProjectBackupTests(unittest.TestCase):
         self.temp.cleanup()
 
     def create(self):
-        return create_backup(self.root, self.destination, temp_parent=self.root)
+        return create_backup(self.root, self.destination, temp_parent=self.root, writers_paused=True)
 
     def test_backup_restore_all_tables_schema_and_checkpoint_preserved(self):
         before = self.database.read_bytes()
         checkpoint = self.checkpoint.read_bytes()
         report = self.create()
         self.assertTrue(report['passed'])
-        self.assertEqual(report['snapshot']['counts'], {'mods': 1, 'user_states': 1, 'mod_events': 1, 'sync_runs': 1})
+        self.assertEqual(report['snapshot']['counts'], {'mods': 1, 'user_states': 1, 'mod_events': 1, 'sync_runs': 1, 'author_subscriptions': 0})
         self.assertEqual(report['snapshot']['user_version'], 3)
         self.assertEqual(report['checkpoints'], 1)
         bundle = Path(report['bundle'])
@@ -137,7 +137,7 @@ class ProjectBackupTests(unittest.TestCase):
     def test_same_volume_warning_flag_and_external_destination_supported(self):
         self.assertTrue(self.create()['same_project_volume'])
         with tempfile.TemporaryDirectory(dir=ROOT) as other_directory:
-            report = create_backup(self.root, Path(other_directory), temp_parent=self.root)
+            report = create_backup(self.root, Path(other_directory), temp_parent=self.root, writers_paused=True)
             self.assertTrue(report['passed'])
             self.assertFalse(Path(report['bundle']).is_relative_to(self.root))
         with patch('backup_project.same_volume', return_value=False):
@@ -156,6 +156,69 @@ class ProjectBackupTests(unittest.TestCase):
         manifest_path.write_text(json.dumps(manifest))
         with self.assertRaisesRegex(ValueError, 'Unsafe backup manifest path'):
             verify_bundle(bundle, temp_parent=self.root)
+
+
+    def state(self,name,value):
+        p=self.root/name;p.parent.mkdir(parents=True,exist_ok=True);p.write_text(json.dumps(value),encoding='utf-8');return p
+
+    def test_new_state_allowlist_and_optional_absence(self):
+        values={
+          'config/project_identity.json':{'project_id':'e459681a-240f-45d2-b8ce-c0d49572cb98','name':'ErYouToolbox'},
+          'logs/author_updates/rotation.json':{'format':'eryoutoolbox-author-check-v1','cursor':7,'failures':{'7':{'pending_ids':[43],'not_before':0}}},
+          'logs/author_updates/latest.json':{'format':'eryoutoolbox-author-check-v1','observed_at':'2026-11-02T00:00:00Z','authors':[]},
+          'logs/history_sync/state.json':{'format':'eryoutoolbox-history-v1','database':'data/eryoutoolbox.db','games':{}},
+          'logs/history_sync/settings.json':{'enabled':True,'paused':True,'max_pages':2},
+          'logs/history_sync/cooldown.json':{'not_before':100},
+          'logs/preview_repairs/state.json':{'format':'preview-repairs-v1','database':'data/eryoutoolbox.db','items':{'42':{'status':'failed','checked_at':100,'next_check':200}}},
+          'logs/preview_repairs/cooldown.json':{'not_before':100},
+          'logs/web_sync/task.json':{'format':'eryoutoolbox-web-sync-v1','database':'data/eryoutoolbox.db','task_id':'test','state':{'status':'discarded'},'candidate':None}}
+        for name,value in values.items():self.state(name,value)
+        for name in ('logs/content_ratings/instance.lock','logs/author_profiles/7.json','logs/ui_smoke/test/profile/cache.json','logs/author_updates/check_old.json','config/private.json'):
+            self.state(name,{})
+        report=self.create();bundle=Path(report['bundle']);m=json.loads((bundle/'manifest.json').read_text())
+        self.assertEqual(report['checkpoints'],10);self.assertEqual(len(m['files']),11)
+        self.assertTrue(all((bundle/'checkpoints'/name).exists() for name in values))
+
+    def test_explicit_pause_required(self):
+        with self.assertRaisesRegex(ValueError,'Pause ALL'):create_backup(self.root,self.destination)
+        self.assertFalse(self.destination.exists())
+
+    def test_invalid_new_format_and_binding(self):
+        p=self.state('logs/preview_repairs/state.json',{'format':'future-v2','database':'data/eryoutoolbox.db','items':{}})
+        with self.assertRaises(ValueError):self.create()
+        p.write_text('{broken')
+        with self.assertRaises(ValueError):self.create()
+        p.write_text(json.dumps({'format':'preview-repairs-v1','database':'E:/somewhere.db','items':{}}))
+        with self.assertRaises(ValueError):self.create()
+
+    def test_json_database_mismatch_blocks_complete(self):
+        self.state('logs/web_sync/task.json',{'format':'eryoutoolbox-web-sync-v1','database':'data/eryoutoolbox.db','task_id':'test','state':{'status':'waiting'},'candidate':{'baseline':'wrong','sync_generation':1,'task_id':'test'}})
+        with self.assertRaisesRegex(ValueError,'mismatch'):self.create()
+        self.assertEqual(json.loads(next(self.destination.glob('*/manifest.json')).read_text())['status'],'failed')
+
+    def test_database_change_after_snapshot_refused(self):
+        import backup_project
+        original=backup_project.verify_bundle
+        def verify(*args,**kwargs):
+            value=original(*args,**kwargs);c=sqlite3.connect(self.database);c.execute("UPDATE mods SET title='changed'");c.commit();c.close();return value
+        with patch('backup_project.verify_bundle',side_effect=verify):
+            with self.assertRaisesRegex(ValueError,'Database changed'):self.create()
+
+    def test_interrupt_manifest_never_complete(self):
+        with patch('backup_project.sqlite_copy',side_effect=KeyboardInterrupt):
+            with self.assertRaises(KeyboardInterrupt):self.create()
+        self.assertEqual(json.loads(next(self.destination.glob('*/manifest.json')).read_text())['status'],'failed')
+
+    def test_missing_recovery_file_does_not_restore_production(self):
+        bundle=Path(self.create()['bundle']);before=self.database.read_bytes()
+        (bundle/'checkpoints/logs/content_ratings/checkpoint_all.json').unlink()
+        with self.assertRaises(FileNotFoundError):verify_bundle(bundle,temp_parent=self.root)
+        self.assertEqual(before,self.database.read_bytes())
+
+    def test_legacy_manifest_verification_compatible(self):
+        bundle=Path(self.create()['bundle']);p=bundle/'manifest.json';m=json.loads(p.read_text())
+        m.pop('database_digest');m.pop('recovery_inventory');m['snapshot']['counts'].pop('author_subscriptions');p.write_text(json.dumps(m))
+        self.assertTrue(verify_bundle(bundle,temp_parent=self.root)['passed'])
 
 
 if __name__ == '__main__':

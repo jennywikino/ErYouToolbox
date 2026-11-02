@@ -1,3 +1,5 @@
+import RelatedMods from './RelatedMods'
+import type {Author} from './Authors'
 import { useState } from 'react'
 import type { Mod } from './types'
 import { canShowImages, dateLabel, imageIndex, safeUrl } from './policy'
@@ -6,7 +8,7 @@ import { ImagePlaceholder } from './PreviewCard'
 import FollowAuthor from './FollowAuthor'
 import ReadStateControl from './ReadStateControl'
 
-export default function ModDetail({ mod, allowUnknown, onFollowChange, onBack }: { mod: Mod; allowUnknown: boolean; onFollowChange: () => void; onBack: () => void }) {
+export default function ModDetail({ mod, allowUnknown, onFollowChange, onBack, onOpenAuthor, onOpenMod, ratings }: { mod: Mod; allowUnknown: boolean; onFollowChange: () => void; onBack: () => void; onOpenAuthor:(a:Author)=>void; onOpenMod:(m:Mod)=>void; ratings?:string[]|null }) {
   const [index, setIndex] = useState(0)
   const [failedUrl, setFailedUrl] = useState<string | null>(null)
   const [loadedUrl,setLoadedUrl]=useState<string|null>(null)
@@ -62,7 +64,7 @@ export default function ModDetail({ mod, allowUnknown, onFollowChange, onBack }:
       </section>
       <aside className="detail-meta">
         <p className="section-kicker">作品信息</p>
-        <h2 className="mt-3 text-lg font-semibold">{authorUrl ? <a href={authorUrl} target="_blank" rel="noopener noreferrer">{mod.author_name || '暂无作者'}</a> : mod.author_name || '暂无作者'}</h2>
+        <h2 className="mt-3 text-lg font-semibold">{mod.author_id ? <button onClick={()=>onOpenAuthor({source:mod.source,author_id:mod.author_id!,name:mod.author_name||undefined})}>{mod.author_name || '暂无作者'}</button> : mod.author_name || '暂无作者'}</h2>
         <FollowAuthor source={mod.source} authorId={mod.author_id} onChange={onFollowChange} />
         {authorUrl && <a className="mt-2 inline-flex items-center gap-2 text-xs text-violet-700"
           href={authorUrl} target="_blank" rel="noopener noreferrer">作者主页<Icon name="external" /></a>}
@@ -80,6 +82,7 @@ export default function ModDetail({ mod, allowUnknown, onFollowChange, onBack }:
         </div>
         {originalUrl && <a className="primary-button mt-6" href={originalUrl} target="_blank" rel="noopener noreferrer">
           查看 GameBanana 原帖<Icon name="external" /></a>}
+        <RelatedMods ratings={ratings} mod={mod} allowUnknown={allowUnknown} onOpen={onOpenMod} onAuthor={onOpenAuthor}/>
       </aside>
     </div>
   </article>

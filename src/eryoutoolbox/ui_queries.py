@@ -155,7 +155,8 @@ def query_mods(database_path: str | Path, *, game_id: int | None = None,
                limit: int = 24, offset: int = 0,
                require_preview: bool = False, rating_codes: list[str] | None = None,
                require_updated: bool = False, subscriptions_only: bool = False,
-               read_filter: str = 'all') -> dict[str, Any]:
+               read_filter: str = 'all', author_source: str | None = None,
+               author_id: int | None = None, exclude_item_id: int | None = None) -> dict[str, Any]:
     if sort not in SORT_COLUMNS:
         raise ValueError("Unsupported MOD sort option.")
     if limit < 1 or offset < 0:
@@ -166,6 +167,11 @@ def query_mods(database_path: str | Path, *, game_id: int | None = None,
         condition="EXISTS (SELECT 1 FROM user_states rs WHERE rs.source=m.source AND rs.item_type=m.item_type AND rs.item_id=m.item_id AND rs.is_read=1)"
         where.append(condition if read_filter=='read' else 'NOT '+condition)
     parameters: list[Any] = []
+    if author_id is not None:
+        if not author_source or type(author_id) is not int or author_id<=0:raise ValueError('Invalid author identity')
+        where.append('m.source=? AND m.author_id=?');parameters.extend((author_source,author_id))
+    if exclude_item_id is not None:
+        where.append('m.item_id<>?');parameters.append(exclude_item_id)
     if game_id is not None:
         where.append("m.game_id = ?")
         parameters.append(game_id)

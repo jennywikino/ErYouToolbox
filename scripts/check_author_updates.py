@@ -17,7 +17,7 @@ def main():
     a=p.parse_args()
     try:
         if a.apply_report:
-            with instance_lock(ROOT/'logs/author_updates/instance.lock'):
+            with instance_lock(ROOT/'logs/content_ratings/instance.lock'):
                 print(json.dumps(apply_report(ROOT/'data/eryoutoolbox.db',json.loads(a.apply_report.read_text(encoding='utf-8')))))
         else:
             report,path=preview(ROOT/'data/eryoutoolbox.db',ROOT,

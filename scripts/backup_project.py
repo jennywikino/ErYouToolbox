@@ -10,6 +10,7 @@ import sqlite3
 import tempfile
 import time
 import uuid
+from recovery_state import PATHS, validate, database_digest, coherence
 
 from verify_backup import (open_readonly, sha256_file, database_snapshot,
                            integrity_result, foreign_key_violations)
@@ -29,6 +30,7 @@ def sqlite_copy(source, target, timeout=60):
 def checkpoint_paths(project, extras=()):
     paths = set((project / 'logs' / 'content_ratings').glob('checkpoint_*.json'))
     paths.update((project / 'logs' / 'preview_backfill').glob('*checkpoint*.json'))
+    paths.update(project/name for name in PATHS if (project/name).exists())
     pause = project / 'logs' / 'content_ratings' / 'source_pause.json'
     if pause.exists():
         paths.add(pause)
@@ -36,14 +38,21 @@ def checkpoint_paths(project, extras=()):
         path = (project / extra).resolve()
         if not path.is_file():
             raise FileNotFoundError(path)
+        relative=path.relative_to(project.resolve()).as_posix()
+        if relative not in PATHS and not (relative.startswith('logs/content_ratings/checkpoint_') or relative.startswith('logs/preview_backfill/') and 'checkpoint' in path.name):
+            raise ValueError('Extra recovery file is not allowlisted')
         paths.add(path)
     result = []
     for path in paths:
+        if any(p.is_symlink() or p.is_junction() for p in (path,*path.parents)):
+            raise ValueError('Recovery symlink/reparse path refused')
         path = path.resolve()
         if not path.is_relative_to(project.resolve()):
             raise ValueError('Checkpoint must reside inside project root')
         if path.suffix != '.json':
             raise ValueError('Checkpoint must be JSON')
+        if any(p.is_symlink() for p in (path,*path.parents)):
+            raise ValueError('Recovery symlink/reparse path refused')
         result.append(path)
     return sorted(result)
 
@@ -54,6 +63,7 @@ def checkpoint_bytes(path):
     if not isinstance(value, dict):
         raise ValueError(f'Invalid checkpoint object: {path.name}')
     format_name = value.get('format')
+    if validate(Path(path),value):return raw
     if format_name == 'eryoutoolbox-rating-backfill-v1':
         if (not isinstance(value.get('attempted_ids'), list) or not isinstance(value.get('failures'), dict)
                 or any(type(i) is not int or i < 1 for i in value['attempted_ids'])):
@@ -103,6 +113,9 @@ def verify_bundle(bundle, *, temp_parent, require_complete=True):
             raise ValueError(f"Backup checksum mismatch: {entry['path']}")
         if entry['kind'] == 'checkpoint':
             checkpoint_bytes(path)
+    inventory=manifest.get('recovery_inventory')
+    if inventory and set(inventory['included'])!={f['path'].removeprefix('checkpoints/') for f in files[1:]}:
+        raise ValueError('Recovery inventory/file list mismatch')
     temp_parent = Path(temp_parent)
     temp_parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix='backup_restore_', dir=temp_parent) as directory:
@@ -116,9 +129,13 @@ def verify_bundle(bundle, *, temp_parent, require_complete=True):
             source.close()
         recovered = open_readonly(restored)
         try:
-            snapshot = database_snapshot(recovered)
+            snapshot = database_snapshot(recovered,include_authors='author_subscriptions' in manifest['snapshot']['counts'])
             integrity = integrity_result(recovered)
             violations = foreign_key_violations(recovered)
+            if manifest.get('database_digest') and database_digest(recovered)!=manifest['database_digest']:
+                raise ValueError('Restored database content mismatch')
+            states={entry['path'].removeprefix('checkpoints/'):json.loads(bundle_file(bundle,entry['path']).read_text(encoding='utf-8')) for entry in files[1:]}
+            coherence(recovered,states)
         finally:
             recovered.close()
         if integrity != 'ok' or violations or snapshot != manifest['snapshot']:
@@ -135,7 +152,14 @@ def verify_bundle(bundle, *, temp_parent, require_complete=True):
             'snapshot': snapshot, 'checkpoints': len(files) - 1}
 
 
-def create_backup(project, destination, *, extra_checkpoints=(), temp_parent=None):
+def create_backup(project, destination, *, extra_checkpoints=(), temp_parent=None, writers_paused=False):
+    if not writers_paused:raise ValueError('Pause ALL database/checkpoint writers and explicitly confirm writers_paused before backup')
+    from backfill_content_ratings import instance_lock
+    with instance_lock(Path(project)/'logs/content_ratings/instance.lock'):
+        return _create_backup(project,destination,extra_checkpoints=extra_checkpoints,temp_parent=temp_parent)
+
+
+def _create_backup(project, destination, *, extra_checkpoints=(), temp_parent=None):
     project = Path(project).resolve()
     destination = Path(destination).resolve()
     database = project / 'data' / 'eryoutoolbox.db'
@@ -158,12 +182,17 @@ def create_backup(project, destination, *, extra_checkpoints=(), temp_parent=Non
     try:
         checkpoints = checkpoint_paths(project, extra_checkpoints)
         checkpoint_data = {path: checkpoint_bytes(path) for path in checkpoints}
+        manifest['recovery_inventory']={'included':[p.relative_to(project).as_posix() for p in checkpoints],
+            'absent_optional':[name for name in PATHS if not (project/name).exists()]}
+        states={path.relative_to(project).as_posix():json.loads(raw) for path,raw in checkpoint_data.items()}
         source = open_readonly(database)
         target = sqlite3.connect(bundle / 'database.db')
         try:
             # Pin one SQLite snapshot for counts and Backup API, including WAL.
             source.execute('BEGIN')
-            manifest['snapshot'] = database_snapshot(source)
+            manifest['snapshot'] = database_snapshot(source,include_authors=True)
+            manifest['database_digest']=database_digest(source)
+            coherence(source,states)
             sqlite_copy(source, target)
         finally:
             target.close()
@@ -182,6 +211,12 @@ def create_backup(project, destination, *, extra_checkpoints=(), temp_parent=Non
                                       'size': path.stat().st_size, 'sha256': sha256_file(path)})
         write_manifest()
         verification = verify_bundle(bundle, temp_parent=temp_parent or project / 'data', require_complete=False)
+        current=open_readonly(database)
+        try:
+            if database_digest(current)!=manifest['database_digest']:raise ValueError('Database changed during backup; pause writers and retry')
+        finally:current.close()
+        if checkpoints!=checkpoint_paths(project,extra_checkpoints) or any(path.read_bytes()!=raw for path,raw in checkpoint_data.items()):
+            raise ValueError('Checkpoints changed during verification; pause writers and retry')
         manifest.update(status='complete', verification=verification)
         write_manifest()
         return {'bundle': str(bundle), 'same_project_volume': on_same_volume, **verification}
@@ -201,6 +236,7 @@ def main(argv=None):
     mode.add_argument('--destination', type=Path, help='Backup root; preferably on another physical disk')
     mode.add_argument('--verify', type=Path, help='Verify/rehearse an existing backup bundle without production restore')
     parser.add_argument('--checkpoint', type=Path, action='append', default=[], help='Additional checkpoint inside project root')
+    parser.add_argument('--writers-paused',action='store_true',help='Confirm ALL writers are paused; backup still detects races')
     args = parser.parse_args(argv)
     try:
         if args.verify is None:
@@ -209,7 +245,7 @@ def main(argv=None):
             print('NOTICE: Backups on the same physical device cannot protect against loss of that device; use another physical device for disaster recovery.', flush=True)
             if same_volume(ROOT, destination):
                 print('WARNING: Target is on the project volume. This is NOT an independent disaster-recovery backup.', flush=True)
-            result = create_backup(ROOT, destination, extra_checkpoints=args.checkpoint)
+            result = create_backup(ROOT, destination, extra_checkpoints=args.checkpoint,writers_paused=args.writers_paused)
         else:
             result = verify_bundle(args.verify, temp_parent=ROOT / 'data')
         print('Backup verification: PASS')

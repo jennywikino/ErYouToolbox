@@ -27,9 +27,9 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
-def database_snapshot(connection: sqlite3.Connection) -> dict[str, Any]:
+def database_snapshot(connection: sqlite3.Connection, *, include_authors=False) -> dict[str, Any]:
     counts = {}
-    for table in TABLES:
+    for table in TABLES + (("author_subscriptions",) if include_authors else ()):
         counts[table] = connection.execute(f'SELECT COUNT(*) FROM "{table}"').fetchone()[0]
     version = connection.execute("PRAGMA user_version").fetchone()[0]
     return {"counts": counts, "user_version": version}

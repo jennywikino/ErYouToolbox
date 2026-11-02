@@ -45,16 +45,22 @@ class AutoSync:
         self.directory=Path(state_dir) if state_dir else runtime_dir(self.root)
         self.running=threading.Lock()
 
-    def launch(self):
-        if self.settings()['mode']=='off':raise ValueError('Automatic sync is disabled')
-        if not self.running.acquire(blocking=False):raise ValueError('Automatic sync already running')
+    def launch(self, *, startup=False):
+        if self.settings()['mode']=='off':
+            if startup:return {'status':'disabled','requests':0}
+            raise ValueError('Automatic sync is disabled')
+        if not self.running.acquire(blocking=False):
+            if startup:return {'status':'already_running','requests':0}
+            raise ValueError('Automatic sync already running')
         def target():
-            try:self.run(force=True)
+            try:self.run(force=not startup,preserve_preview=startup)
             except Exception as exc:
                 if 'Another rating backfill instance is active' not in str(exc):
                     atomic_json(self.directory/'last_run.json',{'status':'failed','started_at':utc(),'started_epoch':time.time(),'error':str(exc),'requests':0})
             finally:self.running.release()
-        threading.Thread(target=target,daemon=True).start()
+        # Browser lifetime must not own the job. A normal server shutdown can
+        # finish the bounded worker rather than abandoning an active transaction.
+        threading.Thread(target=target,daemon=False).start()
         return {'status':'requested'}
 
     def settings(self):
@@ -74,6 +80,15 @@ class AutoSync:
         with instance_lock(self.directory/'settings.lock'):
             atomic_json(self.directory/'settings.json',value)
         return self.status()
+
+    def history(self):
+        from history_sync import HistorySync
+        return HistorySync(self.root,self.database,self.games,mode_provider=self.settings)
+
+    def run_history(self):
+        # Caller already owns the same OS lock. Never reacquire it here.
+        try:return self.history().run(lock_held=True)
+        except (OSError,ValueError) as exc:return {'status':'failed','requests':0,'error':str(exc)}
 
     def status(self):
         settings=self.settings();last=self.directory/'last_run.json'
@@ -100,7 +115,7 @@ class AutoSync:
         task=json.loads(registration.read_text(encoding='utf-8')) if registration.exists() else {'registered':False}
         return {'settings':settings,'last_run':record,'next_due':next_check,'task':task}
 
-    def run(self,*,force=False,dry_run=False,max_pages=None,game=None):
+    def run(self,*,force=False,dry_run=False,max_pages=None,game=None,preserve_preview=False):
         # A missing disk must not create an empty SQLite database.
         if not self.database.is_file():raise ValueError('Existing database required')
         settings=self.settings();mode='check' if dry_run else settings['mode']
@@ -109,12 +124,17 @@ class AutoSync:
         with instance_lock(self.root/'logs/content_ratings/instance.lock'):
             previous=self.status()['last_run']
             now=time.time()
+            history_cooldown=self.history().cooldown_until()
+            if now<history_cooldown:return {'status':'cooldown','not_before':history_cooldown,'requests':0}
             if previous and now<previous.get('not_before',0):return {'status':'cooldown','not_before':previous['not_before'],'requests':0}
             if not force and previous and previous['status'] not in ('manual_preview_pending','preview_resolved') and now<previous['started_epoch']+settings['interval_hours']*3600:
-                return {'status':'not_due','requests':0}
+                history={'status':'not_requested','requests':0} if dry_run else self.run_history()
+                if history.get('not_before'):
+                    atomic_json(self.directory/'last_run.json',{**previous,'not_before':history['not_before']})
+                return {'status':'not_due','requests':history.get('requests',0),'history':history}
             service=WebSync(self.database,self.root,self.games or json.loads((self.root/'config/games.json').read_text(encoding='utf-8'))['games'])
             old=service.view()
-            if old['status']=='waiting' and not old.get('automatic') and service.candidate and now-service.candidate['created']<=600:
+            if old['status']=='waiting' and (preserve_preview or not old.get('automatic')) and service.candidate and now-service.candidate['created']<=600:
                 deferred={'status':'manual_preview_pending','started_epoch':now,'started_at':utc(),'requests':0,
                           'error':'Manual preview awaits confirmation; automatic job did not replace it'}
                 atomic_json(self.directory/'last_run.json',deferred)
@@ -142,7 +162,29 @@ class AutoSync:
                               failures=state.get('failures',[]),coverage=state.get('coverage','incomplete'),
                               inserted=state.get('report',{}).get('inserted',0),source_updated=state.get('report',{}).get('source_update_events',0))
                 if state.get('scan_status')=='rate_limited':record['not_before']=time.time()+settings['interval_hours']*3600
+                else:
+                    from eryoutoolbox.author_updates import run_rotation
+                    from eryoutoolbox.gamebanana import TIMEOUT,HEADERS
+                    import httpx
+                    with httpx.Client(timeout=TIMEOUT,headers=HEADERS) as client:
+                        def author_guard():
+                            if self.settings()['mode']!='apply':raise ValueError('Automatic apply disabled')
+                        try:
+                            authors=run_rotation(self.database,self.root,client=client,apply=mode=='apply',advance=not dry_run,write_guard=author_guard)
+                        except (OSError,ValueError,httpx.HTTPError) as exc:
+                            authors={'status':'failed','requests':0,'error':str(exc)}
+                    record['authors']={k:authors.get(k) for k in ('status','requests','followed_count','checked_authors','pending_count')}
+                    if authors.get('error'):record['authors']['error']=authors['error']
+                    record['requests']+=authors['requests']
+                    if authors.get('rate_limited_at'):record['not_before']=time.time()+max(authors.get('retry_after_seconds') or settings['interval_hours']*3600,1)
+                    if authors['status']!='success':record['status']='partial'
                 if state['status']=='failed':record['error']=state.get('error','No validated pages')
+                if not dry_run and not record.get('not_before') and state['status']!='failed':
+                    history=self.run_history()
+                    record['history']={k:history.get(k) for k in ('status','requests','coverage')}
+                    record['requests']+=history.get('requests',0)
+                    if history.get('not_before'):record['not_before']=history['not_before']
+                    if history['status'] in ('failed','partial','stopped'):record['status']='partial'
             except BaseException as exc:
                 record.update(status='stopped' if isinstance(exc,KeyboardInterrupt) else 'failed',ended_at=utc(),error=str(exc),requests=service.state.get('requests',0))
                 service.state={**service.state,'status':record['status'],'error':str(exc)}
@@ -151,6 +193,7 @@ class AutoSync:
                 atomic_json(self.directory/'last_run.json',record)
                 if isinstance(exc,KeyboardInterrupt):raise
                 return record
+            record['ended_at']=utc()
             atomic_json(self.directory/'last_run.json',record)
             atomic_json(self.directory/('run_'+secrets.token_hex(12)+'.json'),record)
             return record

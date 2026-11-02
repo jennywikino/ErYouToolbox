@@ -1,6 +1,6 @@
 import {useEffect,useRef,useState} from 'react'
 import {syncTimeLabel} from './policy'
-export default function ReadStateControl({source,itemId,initial,auto=false,onChange}:{source:string;itemId:number;initial?:boolean|number;auto?:boolean;onChange:()=>void}){
+export default function ReadStateControl({source,itemId,initial,auto=false,onChange,compact=false}:{source:string;itemId:number;initial?:boolean|number;auto?:boolean;onChange:()=>void;compact?:boolean}){
   const [read,setRead]=useState(!!initial),[first,setFirst]=useState<string|null>(null),[error,setError]=useState(''),[busy,setBusy]=useState(false),[ready,setReady]=useState(true)
   const callback=useRef(onChange);callback.current=onChange
   useEffect(()=>{if(!auto)setRead(!!initial)},[initial,auto])
@@ -17,7 +17,7 @@ export default function ReadStateControl({source,itemId,initial,auto=false,onCha
     return()=>{alive=false}
   },[source,itemId,auto])
   async function toggle(){setBusy(true);setError('');try{const value=await write(!read);setRead(value.is_read);setFirst(value.first_viewed_at);callback.current()}catch(e){setError(e instanceof Error?e.message:'状态保存失败')}finally{setBusy(false)}}
-  return <div className="mx-4 my-3 text-xs text-slate-500">
+  return <div className={`read-state-control mx-4 my-3 text-xs text-slate-500${compact?' compact-read':''}`}>
     {read&&<span className="mr-3">已阅</span>}<button className="small-button" disabled={busy||!ready} onClick={toggle}>{busy?'保存中…':read?'恢复未阅':'标记已阅'}</button>
     {auto&&first&&<p className="mt-2">首次记录浏览：{syncTimeLabel(first)}</p>}
     {error&&<p className="mt-2 text-red-600" role="alert">{error}</p>}

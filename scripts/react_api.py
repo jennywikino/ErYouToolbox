@@ -21,12 +21,15 @@ from eryoutoolbox.author_updates import preview as preview_authors
 from eryoutoolbox.popular import PopularClient, link_local
 from eryoutoolbox.read_states import get_state as get_read_state, set_read
 from web_sync import WebSync
+from eryoutoolbox.authors import author_list,member
 from auto_sync import AutoSync
 from manage_auto_sync import task_status
 POPULAR = PopularClient()
 
 def author_summary(report):
-    return {'checked_at':report.get('observed_at'),'status':report.get('status'), 'preview':True,
+    return {'checked_at':report.get('observed_at'),'status':report.get('status'), 'preview':not bool(report.get('applied')),
+            'followed':report.get('followed_count',0),'checked_authors':report.get('checked_authors',0),
+            'pending':report.get('pending_count',0)+sum(bool(a.get('errors')) for a in report.get('authors',[])),
             'new':sum(a.get('new_publications',0) for a in report.get('authors',[])),
             'updates':sum(a.get('comparison',{}).get('source_update_events',0) for a in report.get('authors',[]) if not a.get('baseline_pending')),
             'baseline_pending':any(a.get('baseline_pending') for a in report.get('authors',[])),
@@ -72,10 +75,22 @@ class ReadOnlyAPI:
         query = parse_qs(path.query, keep_blank_values=True)
         allow_unknown = query.get("show_unrated", ["1"])[0] == "1"
         try:
+            if path.path in ('/api/authors','/api/author'):
+                specific=path.path=='/api/author'
+                aid=self.number(query,'author_id',0,1,2**63-1) if specific else None
+                source=query.get('source',[''])[0] if specific else None
+                result=author_list(self.database,search=query.get('search',[''])[0][:200],limit=self.number(query,'limit',20,1,20),offset=self.number(query,'offset',0,0,1000000),source=source,author_id=aid)
+                for author in result['items']:
+                    profile=member(self.web_sync.root,author['source'],author['author_id'],fetch=specific)
+                    author['avatar_url']=profile.get('avatar_url')
+                    author['profile_url']=f"https://gamebanana.com/members/{author['author_id']}" if author['source']=='gamebanana' else None
+                return 200,result
             if path.path == '/api/auto-sync':
                 result=self.auto_sync.status()
                 result['task']=task_status(self.auto_sync.root,self.auto_sync.directory)
                 return 200,result
+            if path.path == '/api/history-sync':
+                return 200,self.auto_sync.history().status()
             if path.path == '/api/sync':
                 return 200,self.web_sync.view()
             if path.path == '/api/read-state':
@@ -109,7 +124,7 @@ class ReadOnlyAPI:
             if path.path == "/api/games":
                 return 200, {"games": self.games}
             if path.path == "/api/mods":
-                limit = self.number(query, "limit", 18, 1, 20)
+                limit = self.number(query, "limit", 18, 1, 50)
                 offset = self.number(query, "offset", 0, 0, 1_000_000)
                 game_id = None
                 if query.get("game", [""])[0]:
@@ -122,6 +137,9 @@ class ReadOnlyAPI:
                     raise ValueError("Unknown content rating code.")
                 result = query_mods(
                     self.database, game_id=game_id,
+                    author_source=query.get('author_source',[None])[0],
+                    author_id=self.number(query,'author_id',0,1,2**63-1) if query.get('author_id') else None,
+                    exclude_item_id=self.number(query,'exclude_id',0,1,2**63-1) if query.get('exclude_id') else None,
                     search=query.get("search", [""])[0][:200],
                     sort=query.get("sort", ["created"])[0],
                     require_updated=query.get("sort", ["created"])[0] == 'updated',
@@ -176,7 +194,7 @@ class ReadOnlyAPI:
 def make_handler(api: ReadOnlyAPI, port: int):
     class Handler(BaseHTTPRequestHandler):
         def do_POST(self):
-            if self.path not in ('/api/subscription','/api/author-updates','/api/read-state','/api/sync','/api/auto-sync','/api/auto-sync/run') or not valid_write_origin(self.headers,port) or self.headers.get('Transfer-Encoding'):
+            if self.path not in ('/api/subscription','/api/author-updates','/api/read-state','/api/sync','/api/auto-sync','/api/auto-sync/run','/api/auto-sync/startup','/api/history-sync') or not valid_write_origin(self.headers,port) or self.headers.get('Transfer-Encoding'):
                 self.send_error(403)
                 return
             try:
@@ -186,9 +204,14 @@ def make_handler(api: ReadOnlyAPI, port: int):
                 body = json.loads(self.rfile.read(length))
                 if self.path == '/api/auto-sync':
                     result=api.auto_sync.configure(body)
-                elif self.path == '/api/auto-sync/run':
+                elif self.path == '/api/history-sync':
+                    history=api.auto_sync.history()
+                    if body=={'action':'run'}:result=history.launch()
+                    elif isinstance(body,dict) and set(body)=={'action','settings'} and body['action']=='configure':result=history.configure(body['settings'])
+                    else:raise ValueError('Invalid historical scan action')
+                elif self.path in ('/api/auto-sync/run','/api/auto-sync/startup'):
                     if body!={}:raise ValueError('Invalid automatic run request')
-                    result=api.auto_sync.launch()
+                    result=api.auto_sync.launch(startup=self.path.endswith('/startup'))
                 elif self.path == '/api/sync':
                     if not isinstance(body,dict):raise ValueError('Invalid request')
                     result=api.web_sync.start(body)

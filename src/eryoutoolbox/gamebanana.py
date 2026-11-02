@@ -91,13 +91,18 @@ def _retry_after_seconds(value: str | None) -> float | None:
 
 def collect_game(client: httpx.Client, game: dict[str, Any], days: int = 30,
                  max_pages: int = 1, per_page: int = 10, delay: float = 1.0,
-                 sort: str = "Generic_NewAndUpdated", start_page: int = 1) -> dict[str, Any]:
+                 sort: str = "Generic_NewAndUpdated", start_page: int = 1,
+                 max_requests: int | None = None, max_rate_wait: float | None = None) -> dict[str, Any]:
     if max_pages < 1:
         raise ValueError("max_pages must be at least 1")
     if type(start_page) is not int or start_page < 1:
         raise ValueError("start_page must be a positive integer")
     if not 1 <= per_page <= MAX_PER_PAGE:
         raise ValueError(f"per_page must be between 1 and {MAX_PER_PAGE}")
+    if max_requests is not None and (type(max_requests) is not int or max_requests < 1):
+        raise ValueError('max_requests must be a positive integer')
+    if max_rate_wait is not None and max_rate_wait < 0:
+        raise ValueError('max_rate_wait must be nonnegative')
     game_id = game["game_id"]
     records: list[dict[str, Any]] = []
     failures: list[dict[str, Any]] = []
@@ -117,6 +122,10 @@ def collect_game(client: httpx.Client, game: dict[str, Any], days: int = 30,
         }
         attempt = 0
         while True:
+            if max_requests is not None and request_count >= max_requests:
+                failures.append({'page': page, 'reason': 'HTTP request budget exhausted (including retries).'})
+                hit_rate_limit = True  # Stop paging, not a claim that HTTP 429 occurred.
+                break
             try:
                 request_count += 1
                 response = client.get(API_URL, params=params)
@@ -125,9 +134,10 @@ def collect_game(client: httpx.Client, game: dict[str, Any], days: int = 30,
                     retry_after = response.headers.get("Retry-After")
                     wait_seconds = _retry_after_seconds(retry_after)
                     failures.append({"page": page, "http_status": 429,
-                                     "reason": "HTTP 429; Retry-After missing or invalid, collection stopped." if wait_seconds is None else f"HTTP 429; waited {wait_seconds:g}s then stopped."})
+                                     "retry_after_seconds": wait_seconds,
+                                     "reason": "HTTP 429; collection stopped; Retry-After retained for caller cooldown."})
                     if wait_seconds is not None:
-                        time.sleep(wait_seconds)
+                        time.sleep(wait_seconds if max_rate_wait is None else min(wait_seconds, max_rate_wait))
                     hit_rate_limit = True
                     break
                 response.raise_for_status()
@@ -176,7 +186,7 @@ def collect_game(client: httpx.Client, game: dict[str, Any], days: int = 30,
                 break
             except (httpx.TimeoutException, httpx.RequestError, httpx.HTTPStatusError) as exc:
                 status = exc.response.status_code if isinstance(exc, httpx.HTTPStatusError) else None
-                if attempt == 0 and (status is None or status >= 500):
+                if attempt == 0 and (status is None or status >= 500) and (max_requests is None or request_count < max_requests):
                     attempt += 1
                     time.sleep(1.0)
                     continue

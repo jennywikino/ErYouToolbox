@@ -47,8 +47,35 @@ class ReactAPITests(unittest.TestCase):
         _, next_page = self.api.get("/api/mods?game=19567&limit=2&offset=2")
         self.assertEqual(len(next_page["items"]), 1)
         self.assertNotEqual(page["items"][0]["item_id"], next_page["items"][0]["item_id"])
-        self.assertEqual(self.api.get("/api/mods?limit=21")[0], 400)
+        self.assertEqual(self.api.get("/api/mods?limit=51")[0], 400)
+        self.assertEqual(self.api.get("/api/mods?limit=0")[0], 400)
         self.assertLessEqual(len(self.api.get("/api/mods?limit=20")[1]["items"]), 20)
+
+    def test_15_25_50_pages_and_filters_before_pagination(self):
+        connection=connect_database(self.path)
+        for item_id in range(100,160):
+            connection.execute("INSERT INTO mods(source,item_type,item_id,game_id,title,author_id,author_name,created_at,raw_metadata_json,first_seen_at,last_checked_at) VALUES('gamebanana','Mod',?,8552,?,7,'Batch Author','2026-10-01T00:00:00Z',?,'2026-10-01T00:00:00Z','2026-10-01T00:00:00Z')",(item_id,f'Batch {item_id}',json.dumps({'_aContentRatings':{'pn':'Partial Nudity'}})))
+            connection.execute("INSERT INTO user_states(source,item_type,item_id,is_read,updated_at) VALUES('gamebanana','Mod',?,?,'2026-10-01T00:00:00Z')",(item_id,int(item_id<120)))
+        connection.execute("INSERT INTO author_subscriptions VALUES('gamebanana',7,'Batch Author','2026-01-01T00:00:00Z')")
+        connection.commit();connection.close()
+        before=hashlib.sha256(self.path.read_bytes()).digest()
+        for size in (15,25,50):
+            identities=[]
+            for offset in range(0,82,size):
+                status,page=self.api.get(f'/api/mods?limit={size}&offset={offset}')
+                self.assertEqual(status,200);self.assertEqual(page['total_count'],82)
+                self.assertLessEqual(len(page['items']),size)
+                identities.extend((r['source'],r['item_type'],r['item_id']) for r in page['items'])
+            self.assertEqual(len(identities),82);self.assertEqual(len(set(identities)),82)
+        filters='game=8552&author_source=gamebanana&author_id=7&feed=subscriptions&search=Batch&ratings=pn&read=unread'
+        status,first=self.api.get('/api/mods?'+filters+'&limit=25')
+        _,last=self.api.get('/api/mods?'+filters+'&limit=25&offset=25')
+        self.assertEqual(status,200);self.assertEqual(first['total_count'],40)
+        self.assertEqual(len(first['items']),25);self.assertEqual(len(last['items']),15)
+        self.assertEqual(len({r['item_id'] for r in first['items']+last['items']}),40)
+        _,empty=self.api.get('/api/mods?'+filters+'&limit=50&offset=1000')
+        self.assertEqual(empty['items'],[])
+        self.assertEqual(hashlib.sha256(self.path.read_bytes()).digest(),before)
 
     def test_search_and_images_only_use_saved_data(self):
         status, page = self.api.get("/api/mods?with_images=1&search=Sample%201")

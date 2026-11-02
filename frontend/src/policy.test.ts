@@ -1,6 +1,31 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import {listingPreferences,resizedPage,cardPreviewUrl} from './policy.ts'
+import {createStartupRequest} from './autoStartup.ts'
 import { canShowImages, imageIndex, safeUrl, discoveryTime, syncTimeLabel, syncStatusLabel, subscriptionActivity, restoreScrollTop, restorePopularView, validBrowseSnapshot } from './policy.ts'
+
+test('startup is once per document, off skips launch, enabled delegates due checks to server', async () => {
+  for(const mode of ['off','check','apply']){
+    const calls: {url:string;init?:RequestInit}[]=[]
+    const start=createStartupRequest((async (url:RequestInfo|URL,init?:RequestInit)=>{
+      calls.push({url:String(url),init})
+      return new Response(JSON.stringify(init?{status:'requested'}:{settings:{mode}}),{status:200})
+    }) as typeof fetch)
+    const first=start();assert.equal(first,start());await Promise.all([first,start()])
+    assert.equal(calls.length,mode==='off'?1:2)
+    if(mode!=='off'){
+      assert.equal(calls[1].url,'/api/auto-sync/startup')
+      assert.equal(calls[1].init?.body,'{}') // Never forces or changes saved mode.
+    }
+  }
+})
+
+test('startup errors remain visible without automatic retry loops', async () => {
+  let requests=0
+  const start=createStartupRequest((async()=>{requests++;throw Error('offline')}) as typeof fetch)
+  await assert.rejects(start(),/offline/);await assert.rejects(start(),/offline/)
+  assert.equal(requests,1)
+})
 
 test('image display preference is independent of source classification', () => {
   assert.equal(canShowImages('UNKNOWN', false), false)
@@ -62,5 +87,40 @@ test('popular query and per-game pages survive history serialization',()=>{
 test('missing or malformed history is ignored rather than crashing a refreshed detail',()=>{
   const snapshot={feed:'latest',game:'8552',draft:'test',search:'test',sort:'created',readFilter:'all',anchor:'gamebanana:Mod:1',page:2,scrollY:800,anchorTop:200,withImages:false,allowUnknown:true,ratings:null}
   assert.equal(validBrowseSnapshot(snapshot),true)
+  assert.equal(validBrowseSnapshot({...snapshot,author:{source:'gamebanana',author_id:7}}),true)
+  assert.equal(validBrowseSnapshot({...snapshot,author:{source:'gamebanana',author_id:0}}),false)
+  assert.equal(validBrowseSnapshot({...snapshot,author:{source:'gamebanana',author_id:'7'}}),false)
+  assert.equal(validBrowseSnapshot({...snapshot,pageSize:50,viewMode:'compact'}),true)
+  assert.equal(validBrowseSnapshot({...snapshot,pageSize:51}),false)
+  assert.equal(validBrowseSnapshot({...snapshot,pageSize:'25'}),false)
+  assert.equal(validBrowseSnapshot({...snapshot,viewMode:'unknown'}),false)
   for(const value of [undefined,{}, {...snapshot,ratings:{}},{...snapshot,page:-1},{...snapshot,scrollY:Infinity}])assert.equal(validBrowseSnapshot(value),false)
+})
+
+test('listing defaults and persisted preferences accept only supported densities and sizes',()=>{
+  assert.deepEqual(listingPreferences(null),{viewMode:'compact',pageSize:25})
+  for(const pageSize of [15,25,50])for(const viewMode of ['compact','standard']){
+    const value={viewMode,pageSize}
+    assert.deepEqual(listingPreferences(JSON.parse(JSON.stringify(value))),value)
+  }
+  assert.deepEqual(listingPreferences({viewMode:'unsafe',pageSize:1000}),{viewMode:'compact',pageSize:25})
+})
+
+test('changing page size keeps the former first item on the new page and clamps bounds',()=>{
+  for(const oldSize of [15,25,50])for(const newSize of [15,25,50])for(let page=0;page<4;page++){
+    const next=resizedPage(page,oldSize,newSize,797)
+    assert.ok(next*newSize<=page*oldSize)
+    assert.ok((next+1)*newSize>page*oldSize)
+  }
+  assert.equal(resizedPage(3,25,50,0),0)
+  assert.equal(resizedPage(30,25,50,60),1)
+})
+
+test('compact covers prefer saved thumbnails and never choose a gallery original over them',()=>{
+  const mod={preview_urls:['https://images.gamebanana.com/img/ss/mods/card.jpg'],preview_images:[{image_url:'https://images.gamebanana.com/img/ss/mods/original.jpg',thumbnail_url:'https://images.gamebanana.com/img/ss/mods/530-small.jpg',switch_url:'https://images.gamebanana.com/img/ss/mods/100-small.jpg'}]}
+  assert.equal(cardPreviewUrl(mod,true),mod.preview_images[0].thumbnail_url)
+  assert.equal(cardPreviewUrl(mod,false),mod.preview_urls[0])
+  assert.equal(cardPreviewUrl({preview_urls:[],preview_images:[{thumbnail_url:'javascript:bad',switch_url:mod.preview_images[0].switch_url}]},true),mod.preview_images[0].switch_url)
+  assert.equal(cardPreviewUrl({preview_urls:mod.preview_urls},true),mod.preview_urls[0])
+  assert.equal(cardPreviewUrl({preview_urls:[]},true),null)
 })

@@ -175,7 +175,9 @@ def _import_locked(connection: sqlite3.Connection, merged: dict[tuple[str, str, 
         last_checked = item["captured_at"].isoformat(timespec="seconds").replace("+00:00", "Z") if item["captured_at"] else now
         if existing is None:
             counts["inserted"] += 1
-            plans.append(("inserted", key, new, last_checked, "first_seen", {}, new.get("created_at")))
+            author_check=(sync_run or {}).get('author_check')
+            historical=bool(author_check and (author_check.get('initial') or not new.get('created_at') or new['created_at']<=author_check['baseline_at']))
+            plans.append(("inserted", key, new, last_checked, None if historical else "first_seen", {}, new.get("created_at")))
             continue
         existing_capture = None
         raw_existing = None
@@ -259,7 +261,7 @@ def _import_locked(connection: sqlite3.Connection, merged: dict[tuple[str, str, 
                 event_counts["source_update_events"] += 1
     if not dry_run:
         write_needed = counts["inserted"] > 0 or counts["updated"] > 0
-        if (write_needed or (sync_run is not None and sync_run.get('author_check'))) and before_write is not None:
+        if (write_needed or (sync_run is not None and (sync_run.get('author_check') or sync_run.get('history_scan')))) and before_write is not None:
             before_write()
         if write_needed:
             columns = ", ".join((*IDENTITY_FIELDS, *DB_FIELDS, "first_seen_at", "last_checked_at"))
@@ -305,6 +307,7 @@ def _import_locked(connection: sqlite3.Connection, merged: dict[tuple[str, str, 
             error_summary = {
                 **({'web_sync': sync_run['web_sync']} if sync_run.get('web_sync') else {}),
                 **({'author_check': sync_run['author_check']} if sync_run.get('author_check') else {}),
+                **({'history_scan': sync_run['history_scan']} if sync_run.get('history_scan') else {}),
                 "scan_errors": sync_run.get("errors", []),
                 "inserted": counts["inserted"],
                 "updated": counts["updated"],
@@ -345,7 +348,7 @@ def import_samples(connection: sqlite3.Connection, snapshots: Iterable[tuple[dic
         result = _import_locked(connection, merged, report, False, now, before_write, sync_run)
         connection.commit()
         return result
-    except Exception:
+    except BaseException:
         connection.rollback()
         raise
 

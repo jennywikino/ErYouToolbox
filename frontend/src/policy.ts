@@ -15,6 +15,20 @@ export function imageIndex(index: number, count: number): number {
   return Math.max(0, Math.min(index, count - 1))
 }
 
+export function listingPreferences(value: unknown): {viewMode:'standard'|'compact';pageSize:15|25|50} {
+  const v=(value&&typeof value==='object'?value:{}) as Record<string,unknown>
+  return {viewMode:v.viewMode==='standard'?'standard':'compact',pageSize:v.pageSize===15?15:v.pageSize===50?50:25}
+}
+
+export function resizedPage(page:number,oldSize:number,newSize:number,total:number):number {
+  return Math.min(Math.floor(page*oldSize/newSize),Math.max(0,Math.ceil(total/newSize)-1))
+}
+
+export function cardPreviewUrl(mod:{preview_urls:string[];preview_images?:{thumbnail_url?:string;switch_url?:string}[]},compact:boolean):string|null {
+  const image=mod.preview_images?.[0]
+  return (compact?(safeUrl(image?.thumbnail_url)||safeUrl(image?.switch_url)):null)||safeUrl(mod.preview_urls[0])
+}
+
 export function dateLabel(value: string | null | undefined): string {
   if (!value) return '暂无日期'
   const date = new Date(value)
@@ -55,9 +69,12 @@ export function validBrowseSnapshot(value:unknown):boolean{
   if(!value||typeof value!=='object')return false
   const v=value as Record<string,unknown>
   return ['latest','subscriptions','popular'].includes(String(v.feed))
+    && (v.author==null||(typeof v.author==='object'&&typeof (v.author as Record<string,unknown>).source==='string'&&Number.isSafeInteger((v.author as Record<string,unknown>).author_id)&&Number((v.author as Record<string,unknown>).author_id)>0))
     && ['game','draft','search','sort','readFilter','anchor'].every(key=>typeof v[key]==='string')
     && ['all','read','unread'].includes(String(v.readFilter))
     && Number.isInteger(v.page)&&Number(v.page)>=0
+    && (v.pageSize===undefined||[15,25,50].includes(Number(v.pageSize))&&typeof v.pageSize==='number')
+    && (v.viewMode===undefined||v.viewMode==='standard'||v.viewMode==='compact')
     && typeof v.scrollY==='number'&&Number.isFinite(v.scrollY)&&v.scrollY>=0
     && typeof v.anchorTop==='number'&&Number.isFinite(v.anchorTop)
     && typeof v.withImages==='boolean'&&typeof v.allowUnknown==='boolean'
@@ -69,5 +86,6 @@ export function subscriptionActivity(mod: {subscription_followed_at?: string; au
   const followed = Date.parse(mod.subscription_followed_at || '')
   if (Date.parse(mod.source_update_detected_at || '') >= followed) return '关注后确认来源更新'
   if (Date.parse(mod.created_at || '') >= followed && Date.parse(mod.local_first_seen_event_at || '') >= followed) return '关注后新发布'
+  if (!Number.isFinite(Date.parse(mod.created_at || ''))) return '发布时间未知 · 已收录作品'
   return '已收录历史作品'
 }
