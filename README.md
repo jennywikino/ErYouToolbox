@@ -4,6 +4,8 @@
 
 <img src="assets/branding/MiaomiaoEryouxiang_icon.png" alt="妙妙二玩箱图标" width="180">
 
+[点击链接](https://github.com/jennywikino/ErYouToolbox/releases/download/v0.5.0-rc3/ErYouToolbox-0.5.0-rc3-win-x64.zip)下载
+
 一款自用的二次元游戏 MOD 信息整理工具，聚合 GameBanana 公开数据，方便发现新作品、浏览图片和追踪作者。**不提供 MOD 文件下载。**
 
 **版本：** `v0.5.0-rc3`（预发布候选）｜**平台：** Windows x64
