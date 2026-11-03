@@ -11,7 +11,7 @@ import zipfile
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT/'src'))
 from eryoutoolbox.app_resources import inventory, verify_resources, MANIFEST
-VERSION = '0.5.0-rc1'
+VERSION = '0.5.0-rc2'
 
 
 def main():
@@ -52,8 +52,9 @@ def main():
         raise RuntimeError('Packaged resources differ from pre-build inputs')
     versions = json.loads(subprocess.check_output([str(args.packaging_python),'-c',
         "import importlib.metadata as m,json,platform; print(json.dumps({'python':platform.python_version(),**{n:m.version(n) for n in ['pywebview','pythonnet','pyinstaller','httpx']}}))"],text=True))
-    manifest={'version':VERSION,'build_revision':'OB6-E2-F1','source_commit':git_sha,'working_tree_dirty':dirty,'platform':platform_info,'dependencies':versions,'resource_manifest':'_internal/'+MANIFEST}
+    manifest={'version':VERSION,'build_revision':'OB6-E2-F3','source_commit':git_sha,'working_tree_dirty':dirty,'platform':platform_info,'dependencies':versions,'resource_manifest':'_internal/'+MANIFEST}
     (package/'BUILD_INFO.json').write_text(json.dumps(manifest,indent=2),encoding='utf-8')
+    (package/'CANDIDATE_NOTES.md').write_bytes((ROOT/'docs/PRERELEASE_0_5_0_RC2.md').read_bytes())
     (package/'README.txt').write_text(
         'ErYouToolbox '+VERSION+' Windows x64 portable candidate\n'
         'Extract the whole folder, then double-click ErYouToolbox.exe. Requires Microsoft Edge WebView2 Evergreen Runtime.\n'
@@ -61,14 +62,16 @@ def main():
         'Keep userdata when updating. Close the app and pause all writers before backup or moving drives.\n'
         'Do not copy an active development database here. Existing personal data migration is not automatic.\n'
         'Background scheduled tasks are NOT supported. Checks run only while the client is open.\n'
-        'Automatic mode starts OFF. Python, Node and Vite are not required to run the EXE.\n'
+        'Automatic mode starts OFF until explicit first-use consent; saved settings are never replaced.\n'
+        'While open, the client checks due-time once per minute. Closing it stops future checks.\n'
+        'Python, Node and Vite are not required to run the EXE.\n'
         'Logs: userdata/logs/desktop.log. Unsigned candidate; clean-machine acceptance is still required.\n',encoding='utf-8')
     forbidden={'userdata','data','logs','node_modules','.git','__pycache__'}
     for path in package.rglob('*'):
         relative=path.relative_to(package)
         if any(p in forbidden for p in relative.parts) or path.suffix.lower() in ('.db','.sqlite','.env','.har'):
             raise RuntimeError(f'Forbidden package entry: {relative}')
-    archive=output/f'ErYouToolbox-{VERSION}-OB6-E2-F1-win-x64.zip'
+    archive=output/f'ErYouToolbox-{VERSION}-win-x64.zip'
     with zipfile.ZipFile(archive,'x',compression=zipfile.ZIP_DEFLATED) as zipped:
         for path in sorted(package.rglob('*')):
             if path.is_file():zipped.write(path,Path('ErYouToolbox')/path.relative_to(package))

@@ -1,7 +1,15 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {listingPreferences,resizedPage,cardPreviewUrl} from './policy.ts'
-import {createStartupRequest} from './autoStartup.ts'
+import {createStartupRequest,requestDueCheck} from './autoStartup.ts'
+
+test('periodic due checks preserve off, future, running, pending and saved mode',async()=>{
+ for(const [mode,due,status,posts] of [['off',0,'success',0],['check',1001,'success',0],['apply',0,'checking',0],['apply',0,'manual_preview_pending',0],['check',0,'success',1],['apply',0,'success',1]] as const){
+  let count=0
+  const request=(async (_url:RequestInfo|URL,init?:RequestInit)=>{if(init)count++;return new Response(JSON.stringify(init?{status:'requested'}:{settings:{mode},next_due:new Date(due).toISOString(),last_run:{status}}))}) as typeof fetch
+  await requestDueCheck(request,1000);assert.equal(count,posts)
+ }
+})
 import { canShowImages, imageIndex, safeUrl, discoveryTime, syncTimeLabel, syncStatusLabel, subscriptionActivity, restoreScrollTop, restorePopularView, validBrowseSnapshot } from './policy.ts'
 
 test('startup is once per document, off skips launch, enabled delegates due checks to server', async () => {
@@ -27,13 +35,25 @@ test('startup errors remain visible without automatic retry loops', async () => 
   assert.equal(requests,1)
 })
 
-test('image display preference is independent of source classification', () => {
+test('unknown images require a separate explicit preference', () => {
   assert.equal(canShowImages('UNKNOWN', false), false)
-  assert.equal(canShowImages('UNKNOWN', true), true)
+  assert.equal(canShowImages('UNKNOWN', true), false)
+  assert.equal(canShowImages('UNKNOWN', true,['UNKNOWN'],false,true), true)
+  assert.equal(canShowImages('UNKNOWN',true,['st','rp']),false)
+  assert.equal(canShowImages('UNKNOWN',true,['rp'],false,true),true)
   assert.equal(canShowImages('SAFE', false), false)
 })
-test('image preference also allows adult and unverified ratings', () => {
-  for (const value of ['ADULT', 'NSFW', 'OTHER', '']) assert.equal(canShowImages(value, true), true)
+test('sensitive source codes and manual adult status stay hidden until explicitly allowed', () => {
+  for (const value of ['ADULT', 'NSFW']) {
+    assert.equal(canShowImages(value, true,['-']), false)
+    assert.equal(canShowImages(value, true,['-'],true), true)
+  }
+  for(const code of ['pn','nu','sc','ft','bg','iv']) {
+    assert.equal(canShowImages('UNKNOWN',true,[code]),false)
+    assert.equal(canShowImages('UNKNOWN',true,[code],true),true)
+  }
+  assert.equal(canShowImages('UNKNOWN',true,['-']),true) // Source Unrated, not a SAFE assertion.
+  assert.equal(canShowImages('UNKNOWN',true,['cp']),true)
 })
 test('gallery index respects first, last, and empty image boundaries', () => {
   assert.equal(imageIndex(-1, 6), 0)
@@ -93,6 +113,8 @@ test('missing or malformed history is ignored rather than crashing a refreshed d
   assert.equal(validBrowseSnapshot({...snapshot,pageSize:50,viewMode:'compact'}),true)
   assert.equal(validBrowseSnapshot({...snapshot,pageSize:51}),false)
   assert.equal(validBrowseSnapshot({...snapshot,pageSize:'25'}),false)
+  assert.equal(validBrowseSnapshot({...snapshot,category:'Skins',subcategory:'Baizhi'}),true)
+  assert.equal(validBrowseSnapshot({...snapshot,category:{name:'invalid'}}),false)
   assert.equal(validBrowseSnapshot({...snapshot,viewMode:'unknown'}),false)
   for(const value of [undefined,{}, {...snapshot,ratings:{}},{...snapshot,page:-1},{...snapshot,scrollY:Infinity}])assert.equal(validBrowseSnapshot(value),false)
 })

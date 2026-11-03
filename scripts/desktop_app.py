@@ -26,7 +26,7 @@ from eryoutoolbox.database import initialize_database, SCHEMA_VERSION
 from react_api import ReadOnlyAPI, make_handler
 from backfill_content_ratings import instance_lock
 
-VERSION = '0.5.0-rc1'
+VERSION = '0.5.0-rc2'
 
 
 class DesktopAPI(ReadOnlyAPI):
@@ -223,7 +223,7 @@ def main():
                 with server.lifecycle_lock:
                     closing.set()
                     try:
-                        if api.web_sync.worker_active or api.auto_sync.running.locked():
+                        if api.web_sync.worker_active or api.auto_sync.running.locked() or api.rating_enrichment.running.locked():
                             raise RuntimeError('A sync is running')
                         with instance_lock(root/'logs/content_ratings/instance.lock'):
                             pass
@@ -257,7 +257,8 @@ def main():
             finally:
                 closing.set()
                 api.web_sync.cancel.set()
-                while api.web_sync.worker_active or api.auto_sync.running.locked():
+                api.rating_enrichment.cancel.set()
+                while api.web_sync.worker_active or api.auto_sync.running.locked() or api.rating_enrichment.running.locked():
                     time.sleep(0.2)
                 server.shutdown()
                 server.server_close()

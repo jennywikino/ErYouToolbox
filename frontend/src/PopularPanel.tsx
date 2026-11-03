@@ -1,7 +1,7 @@
 import {useEffect,useState,useRef} from 'react'
 import type {Game,Mod} from './types'
 import PreviewCard from './PreviewCard'
-import {safeUrl,syncTimeLabel} from './policy'
+import {safeUrl,syncTimeLabel,imagePreferenceQuery} from './policy'
 type Board={items:Mod[];fetched_at:string;cached:boolean;has_more:boolean;coverage?:string;pages_scanned?:number;candidate_count?:number;missing_metrics?:number;errors?:string[];cutoff?:string}
 export type PopularView={sort:string;scope:string;days:number;maxPages:number;groups:Record<string,{loaded:boolean;page:number}>}
 function Group({game,sort,search,ratings,allowUnknown,onOpen,scope,days,maxPages,group,onGroupChange,paused}:{game:Game;sort:string;search:string;ratings:string[]|null;allowUnknown:boolean;onOpen:(mod:Mod)=>void;scope:string;days:number;maxPages:number;group:{loaded:boolean;page:number};onGroupChange:(value:{loaded:boolean;page:number})=>void;paused:boolean}){
@@ -13,13 +13,14 @@ function Group({game,sort,search,ratings,allowUnknown,onOpen,scope,days,maxPages
   const [lastSuccess,setLastSuccess]=useState<string|null>(null)
   const refreshSent=useRef(0)
   const dataKey=useRef('')
-  useEffect(()=>{if(!loaded||paused)return;const key=JSON.stringify([page,sort,allowUnknown,revision,game.game_id,scope,days,maxPages]);if(data&&dataKey.current===key)return;const c=new AbortController();setBusy(true);setError('');setData(null)
+  const imagePolicy=imagePreferenceQuery()
+  useEffect(()=>{if(!loaded||paused)return;const key=JSON.stringify([page,sort,allowUnknown,revision,game.game_id,scope,days,maxPages,imagePolicy]);if(data&&dataKey.current===key)return;const c=new AbortController();setBusy(true);setError('');setData(null)
     const refresh=revision>refreshSent.current;refreshSent.current=revision
     const params=new URLSearchParams({game:String(game.game_id),sort,scope,days:String(days),max_pages:String(maxPages),page:String(page),limit:'20',show_unrated:allowUnknown?'1':'0',refresh:refresh?'1':'0'})
-    fetch('/api/popular?'+params,{signal:c.signal}).then(async r=>{const value=await r.json();if(!r.ok)throw Error(value.error);return value}).then(value=>{dataKey.current=key;setData(value);setLastSuccess(value.fetched_at)})
+    fetch('/api/popular?'+params+imagePolicy,{signal:c.signal}).then(async r=>{const value=await r.json();if(!r.ok)throw Error(value.error);return value}).then(value=>{dataKey.current=key;setData(value);setLastSuccess(value.fetched_at)})
       .catch(e=>{if(e.name!=='AbortError')setError(e.message)}).finally(()=>{if(!c.signal.aborted)setBusy(false)})
     return()=>c.abort()
-  },[loaded,page,sort,allowUnknown,revision,game.game_id,scope,days,maxPages,paused])
+  },[loaded,page,sort,allowUnknown,revision,game.game_id,scope,days,maxPages,paused,imagePolicy])
   const items=data?.items.filter(m=>(!search||[m.title,m.author_name,String(m.item_id)].some(s=>s?.toLowerCase().includes(search.toLowerCase())))&&(ratings===null||m.source_ratings?.codes.some(code=>ratings.includes(code))))||[]
   return <section className="mb-8" data-ranking-game={game.game_id} data-ranking-ready={!busy&&!!(data||error)}>
     <h2 className="mb-3 text-lg font-semibold">{game.name}</h2>
@@ -33,7 +34,7 @@ function Group({game,sort,search,ratings,allowUnknown,onOpen,scope,days,maxPages
       {busy&&<p role="status">正在读取来源榜单…</p>}{error&&<p role="alert" className="error-banner">{error}</p>}
       {scope==='recent'&&data&&<div className="mb-4 text-xs leading-6 text-slate-500"><p>coverage={data.coverage} · 扫描 {data.pages_scanned} 页 · 窗口内去重候选 {data.candidate_count} 条 · 指标缺失 {data.missing_metrics} 条</p><p>窗口起点 {syncTimeLabel(data.cutoff)} · 即使观察到边界，也不保证榜单完整无遗漏。</p>{data.errors?.map((message,i)=><p key={i} role="alert" className="text-red-600">扫描中断：{message}</p>)}</div>}
       {remote&&<div className="mb-4 rounded-lg border border-violet-100 p-4 text-sm"><button className="small-button" onClick={()=>setRemote(null)}>关闭来源信息</button><h3 className="my-2 font-semibold">{remote.title}</h3><p>{remote.author_name} · {remote.game_name} · MOD {remote.item_id}</p><p>尚未收录，以上为来源列表信息；浏览不会入库。</p>{safeUrl(remote.original_url)&&<a className="text-violet-700" href={safeUrl(remote.original_url)!} target="_blank" rel="noopener noreferrer">打开原站 ↗</a>}</div>}
-      <div className="mod-grid">{items.map(m=><PreviewCard key={`${m.item_id}:${allowUnknown}`} mod={m} allowUnknown={allowUnknown} onOpen={()=>m.is_local?onOpen(m):setRemote(m)}/>)}</div>
+      <div className="mod-grid">{items.map(m=><PreviewCard key={`${m.item_id}:${allowUnknown}`} mod={m} allowUnknown={allowUnknown} onOpen={()=>onOpen(m)}/>)}</div>
       {data&&!items.length&&<p className="my-4 text-sm text-slate-500">{scope==='recent'&&sort==='downloads'?'暂无可靠下载量数据。':'当前页没有符合筛选条件且具有所选指标的作品。'}</p>}
     </>}
   </section>

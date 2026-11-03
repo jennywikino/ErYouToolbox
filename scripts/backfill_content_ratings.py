@@ -92,11 +92,11 @@ def select_ids(state, checkpoint, limit, retry_failed=False):
     attempted = set(checkpoint['attempted_ids'])
     failed = checkpoint['failures']
     return [i for i in state['eligible_ids']
-            if (str(i) in failed if retry_failed else i not in attempted)][:limit]
+            if (str(i) in failed if retry_failed else i not in attempted and str(i) not in failed)][:limit]
 
 
 def fetch_batch(client, ids, delay=1.0):
-    if len(ids) > 20:
+    if len(ids) > 20 or any(type(i) is not int or i<=0 for i in ids) or len(set(ids))!=len(ids):
         raise ValueError('At most 20 MODs per batch')
     report = {'format': 'eryoutoolbox-rating-audit-v1',
               'observed_at': datetime.now(timezone.utc).isoformat(),
@@ -124,7 +124,7 @@ def fetch_batch(client, ids, delay=1.0):
                 break
             response.raise_for_status()
             payload = response.json()
-            if not isinstance(payload, dict) or payload.get('_idRow') != item_id:
+            if not isinstance(payload, dict) or type(payload.get('_idRow')) is not int or payload.get('_idRow') != item_id:
                 raise ValueError('Unexpected detail JSON structure or identity')
             fields = {key: payload[key] for key in ('_aContentRatings', '_bHasContentRatings', '_sInitialVisibility') if key in payload}
             rating = source_ratings(fields)

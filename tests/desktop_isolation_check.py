@@ -26,19 +26,36 @@ SOURCE=Path(__file__).resolve().parents[1]
 DOM = r'''
 const delay=ms=>new Promise(r=>setTimeout(r,ms));
 (async()=>{
- const [port,base]=process.argv.slice(1);let target;
+ const [port,base,evidence]=process.argv.slice(1);let target;
  for(let i=0;i<100;i++){try{target=(await(await fetch(`http://127.0.0.1:${port}/json/list`)).json()).find(t=>t.type==='page'&&t.url.startsWith(base));if(target)break}catch{}await delay(100)}
  if(!target)throw Error('Native WebView CDP target unavailable');
  const ws=new WebSocket(target.webSocketDebuggerUrl);await new Promise((r,j)=>{ws.onopen=r;ws.onerror=j});let id=0;const pending=new Map();
  ws.onmessage=e=>{const v=JSON.parse(e.data);if(v.id&&pending.has(v.id)){const [r,j,t]=pending.get(v.id);clearTimeout(t);pending.delete(v.id);v.error?j(Error(JSON.stringify(v.error))):r(v.result)}};
  const run=expression=>new Promise((r,j)=>{const n=++id,t=setTimeout(()=>j(Error('CDP timeout')),20000);pending.set(n,[v=>v.exceptionDetails?j(Error(JSON.stringify(v.exceptionDetails))):r(v.result.value),j,t]);ws.send(JSON.stringify({id:n,method:'Runtime.evaluate',params:{expression,awaitPromise:true,returnByValue:true}}))});
  const wait=async expression=>{for(let i=0;i<150;i++){if(await run(expression))return;await delay(100)}throw Error('DOM wait failed: '+expression)};
+ const command=(method,params={})=>new Promise((r,j)=>{const n=++id,t=setTimeout(()=>j(Error('CDP command timeout')),20000);pending.set(n,[r,j,t]);ws.send(JSON.stringify({id:n,method,params}))});
+ await wait(`document.body.innerText.includes('首次使用：选择自动化方式')`);
+ await run(`(()=>{const el=document.querySelector('[aria-label="首次自动化设置"] select');const setter=Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set;setter.call(el,'off');el.dispatchEvent(new Event('change',{bubbles:true}))})()`);
+ await wait(`Array.from(document.querySelectorAll('button')).some(b=>b.textContent==='确认并保存设置')`);
+ await run(`Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='确认并保存设置').click()`);
+ await wait(`!document.body.innerText.includes('首次使用：选择自动化方式')`);
+ const fs=require('fs'),path=require('path');
+ for(const [width,height] of [[1920,1080],[1366,768]]){
+  await command('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile:false});await delay(300);
+  const layout=await run(`({width:innerWidth,scroll:document.documentElement.scrollWidth,columns:getComputedStyle(document.querySelector('.mod-grid')).gridTemplateColumns.split(/\s+/).length})`);
+  if(layout.scroll>layout.width)throw Error('Horizontal overflow '+JSON.stringify(layout));
+  const shot=await command('Page.captureScreenshot',{format:'png'});fs.writeFileSync(path.join(evidence,`F3-${width}.png`),Buffer.from(shot.data,'base64'));
+ }
  await wait(`!!document.querySelector('[data-mod-identity="gamebanana:Mod:900000001"] button')`);
  await run(`document.querySelector('[data-mod-identity="gamebanana:Mod:900000001"] button').click()`);
  await wait(`Array.from(document.querySelectorAll('h1')).some(h=>h.textContent==='Fixture MOD')`);
  await wait(`Array.from(document.querySelectorAll('button')).some(b=>b.textContent.trim()==='关注作者'&&!b.disabled)`);
  await run(`Array.from(document.querySelectorAll('button')).find(b=>b.textContent.trim()==='关注作者').click()`);
  await wait(`document.body.innerText.includes('已关注 · 取消关注')&&document.body.innerText.includes('恢复未阅')`);
+ await run(`Array.from(document.querySelectorAll('button')).find(b=>b.textContent.includes('返回作品库')).click()`);
+ await wait(`!location.hash.includes('/mod/')&&!!document.querySelector('[data-mod-identity="gamebanana:Mod:900000001"] button')`);
+ await run(`history.forward()`);
+ await wait(`location.hash.includes('/mod/')&&document.body.innerText.includes('恢复未阅')`);
  console.log(JSON.stringify(await run(`({hash:location.hash,title:Array.from(document.querySelectorAll('h1')).find(h=>h.textContent==='Fixture MOD').textContent,followed:document.body.innerText.includes('已关注 · 取消关注'),read:document.body.innerText.includes('恢复未阅')})`)));
  ws.close();
 })().catch(e=>{console.error(e);process.exitCode=1});
@@ -70,10 +87,11 @@ def ready(child,log,offset):
     raise RuntimeError('API did not become ready')
 
 
-def request(port,path):
+def request(port,path,body=None):
     c=http.client.HTTPConnection('127.0.0.1',port,timeout=5)
     try:
-        c.request('GET',path);response=c.getresponse();raw=response.read()
+        headers={'Origin':f'http://127.0.0.1:{port}','X-ErYouToolbox':'1','Content-Type':'application/json'}
+        c.request('GET' if body is None else 'POST',path,json.dumps(body) if body is not None else None,headers);response=c.getresponse();raw=response.read()
         if response.status!=200:raise RuntimeError(f'{path}: HTTP {response.status}')
         return json.loads(raw)
     finally:c.close()
@@ -148,6 +166,14 @@ def main():
         port=ready(child,log,offset)
         report['checks']['games']=len(request(port,'/api/games')['games'])
         report['checks']['ratings']=len(request(port,'/api/content-ratings')['options'])
+        request(port,'/api/rating-enrichment',{'action':'run','apply':False,'limit':20})
+        for _ in range(100):
+            state=request(port,'/api/rating-enrichment')
+            if not state['running']:break
+            time.sleep(.1)
+        if state['status']!='success' or state['requests']!=0:raise RuntimeError('Packaged empty-queue rating dry-run failed')
+        report['checks']['packaged_rating_dry_run']={'status':state['status'],'requests':state['requests'],'total':state['inventory']['total']}
+        if (exe.parent/'userdata/logs/content_ratings/checkpoint_all.json').exists():raise RuntimeError('Dry-run advanced rating checkpoint')
         stopped(child,port)
         # Deny writes only on this test-owned userdata directory; restore ACL immediately.
         data=exe.parent/'userdata'
@@ -163,9 +189,13 @@ def main():
         with closing(sqlite3.connect(db)) as c:
             c.execute("INSERT INTO mods(source,item_type,item_id,game_id,game_name,title,author_id,author_name,first_seen_at,last_checked_at) VALUES('gamebanana','Mod',900000001,8552,'Genshin Impact','Fixture MOD',900000002,'Fixture Author','2026-01-01T00:00:00Z','2026-01-01T00:00:00Z')")
             c.commit()
+        # Preseed only the isolated fixture's negative avatar cache. The native
+        # detail component must not turn an offline smoke into a source request.
+        cache=exe.parent/'userdata/logs/author_profiles';cache.mkdir(parents=True,exist_ok=True)
+        (cache/'900000002.json').write_text(json.dumps({'author_id':900000002,'avatar_url':None,'expires':time.time()+86400}),encoding='utf-8')
         child,debug,log,offset=start(exe,cwd,seconds=20,debug=True)
         port=ready(child,log,offset)
-        driver=subprocess.run([shutil.which('node'),'-e',DOM,str(debug),f'http://127.0.0.1:{port}/'],capture_output=True,text=True,encoding='utf-8',timeout=30)
+        driver=subprocess.run([shutil.which('node'),'-e',DOM,str(debug),f'http://127.0.0.1:{port}/',str(args.report.resolve().parent)],capture_output=True,text=True,encoding='utf-8',timeout=40)
         if driver.returncode:raise RuntimeError(driver.stderr)
         report['checks']['native_detail_read_follow']=json.loads(driver.stdout)
         duplicate,_,_,_=start(exe,cwd)
@@ -176,6 +206,9 @@ def main():
         child,_,log,offset=start(exe,base)
         port=ready(child,log,offset)
         read=request(port,'/api/read-state?source=gamebanana&item_id=900000001')
+        automation=request(port,'/api/auto-sync')
+        if not automation.get('configured') or automation['settings']['mode']!='off' or automation['settings']['interval_hours']!=3:raise RuntimeError('First-use consent settings did not persist')
+        report['checks']['consent_persisted']=True
         follow=request(port,'/api/subscription?source=gamebanana&author_id=900000002')
         if not read['is_read'] or not follow['followed']:raise RuntimeError('State did not persist')
         report['checks']['moved_restart']={'is_read':read['is_read'],'followed':follow['followed']}

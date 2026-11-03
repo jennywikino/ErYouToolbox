@@ -201,6 +201,14 @@ class RatingSchedulerTests(unittest.TestCase):
             self.assertEqual(result['status'], 'failed')
             self.assertEqual(self.client.get.call_count, 1)
             self.assertEqual(result['errors'][0]['http_status'], value.status_code)
+            if value.status_code == 403:
+                self.assertIsNotNone(result['not_before'])
+                self.client.reset_mock()
+                blocked = self.execute(apply=True, limit=2)
+                self.assertEqual(blocked['totals']['requests'], 0)
+                self.client.get.assert_not_called()
+                # Independent malformed-JSON scenario: reset only this fixture's cooldown.
+                (self.directory / 'source_pause.json').unlink()
 
 
 if __name__ == '__main__':

@@ -47,7 +47,7 @@ class PopularClient:
                     item=normalize_record(row,game)
                     if not item['item_id']:raise ValueError('Missing MOD ID')
                     item['rank']=(page-1)*(pagination['metadata_per_page'] or limit)+index+1
-                    item['source_ratings']=source_ratings({'_aContentRatings':row.get('_aContentRatings')})
+                    item['source_ratings']=source_ratings(row)
                     item['metrics']={label:row[key] for label,key in (('likes','_nLikeCount'),('views','_nViewCount')) if type(row.get(key)) is int and row[key]>=0}
                     item['image_count']=len(item['preview_images']);items.append(item)
                 result={'items':items,'sort':sort,'page':page,'limit':limit,'metadata':metadata,
@@ -123,8 +123,16 @@ def link_local(database,result):
     try:
         ids=[item['item_id'] for item in result['items']]
         known=set()
+        evidence={}
         if ids:
             known={r[0] for r in c.execute("SELECT item_id FROM mods WHERE source='gamebanana' AND item_type='Mod' AND item_id IN ("+','.join('?' for _ in ids)+')',ids)}
-        for item in result['items']:item['is_local']=item['item_id'] in known
+            from .content_ratings import source_ratings
+            evidence={r[0]:source_ratings(r[1]) for r in c.execute("SELECT item_id,raw_metadata_json FROM mods WHERE source='gamebanana' AND item_type='Mod' AND item_id IN ("+','.join('?' for _ in ids)+')',ids)}
+        for item in result['items']:
+            item['is_local']=item['item_id'] in known
+            saved=evidence.get(item['item_id'])
+            # A list flag must not erase concrete, verified local detail labels.
+            if saved and saved['verification']=='explicit_labels' and item.get('source_ratings',{}).get('verification')!='explicit_labels':
+                item['source_ratings']=saved
     finally:c.close()
     return result

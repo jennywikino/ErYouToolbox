@@ -156,7 +156,8 @@ def query_mods(database_path: str | Path, *, game_id: int | None = None,
                require_preview: bool = False, rating_codes: list[str] | None = None,
                require_updated: bool = False, subscriptions_only: bool = False,
                read_filter: str = 'all', author_source: str | None = None,
-               author_id: int | None = None, exclude_item_id: int | None = None) -> dict[str, Any]:
+               author_id: int | None = None, exclude_item_id: int | None = None,
+               category: str | None = None, subcategory: str | None = None) -> dict[str, Any]:
     if sort not in SORT_COLUMNS:
         raise ValueError("Unsupported MOD sort option.")
     if limit < 1 or offset < 0:
@@ -167,6 +168,10 @@ def query_mods(database_path: str | Path, *, game_id: int | None = None,
         condition="EXISTS (SELECT 1 FROM user_states rs WHERE rs.source=m.source AND rs.item_type=m.item_type AND rs.item_id=m.item_id AND rs.is_read=1)"
         where.append(condition if read_filter=='read' else 'NOT '+condition)
     parameters: list[Any] = []
+    for name,value in (('category',category),('subcategory',subcategory)):
+        if value is not None:
+            if not isinstance(value,str) or not value or len(value)>200:raise ValueError('Invalid category')
+            where.append(f'm.{name}=?');parameters.append(value)
     if author_id is not None:
         if not author_source or type(author_id) is not int or author_id<=0:raise ValueError('Invalid author identity')
         where.append('m.source=? AND m.author_id=?');parameters.extend((author_source,author_id))
@@ -257,6 +262,17 @@ def query_discovery_status(database_path: str | Path, game_id: int | None = None
         connection.close()
 
 
+def query_categories(database_path, game_id=None):
+    """Saved two-level text relationships only; not an official category registry."""
+    c=readonly_connection(database_path)
+    try:
+        rows=c.execute("SELECT category,subcategory,COUNT(*) AS count FROM mods WHERE category IS NOT NULL AND trim(category)<>''"+
+                       (' AND game_id=?' if game_id is not None else '')+
+                       ' GROUP BY category,subcategory ORDER BY category,subcategory',() if game_id is None else (game_id,)).fetchall()
+        return {'scope':'local_library','game_id':game_id,'items':[dict(r) for r in rows]}
+    finally:c.close()
+
+
 def query_mod_detail(database_path: str | Path, *, source: str,
                      item_type: str, item_id: int) -> dict[str, Any] | None:
     """Read one MOD detail by its composite key without changing the database."""
@@ -294,6 +310,9 @@ def query_mod_detail(database_path: str | Path, *, source: str,
         source_record = metadata.get("_record") if isinstance(metadata, dict) else None
         description = source_record.get("description") if isinstance(source_record, dict) else None
         result["description"] = description if isinstance(description, str) and description.strip() else None
+        from .source_detail import summary
+        details=summary(source_record if isinstance(source_record,dict) else {})
+        result.update(metrics=details['metrics'],files=details['files'],file_count=details['file_count'],is_local=True)
         return result
     except sqlite3.Error as exc:
         raise DatabaseReadError(f"Database detail query failed: {exc}") from exc

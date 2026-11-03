@@ -1,6 +1,20 @@
 # Windows portable release candidate checklist
 
-Target: 0.5.0-rc1. A local candidate is not a formal release.
+Target: 0.5.0-rc2. A local candidate is not a formal release.
+
+- [x] F3 directed Nahida study; independent implementation, no GPL code/assets copied.
+- [x] F3 first-use explicit consent, saved preferences preserved, periodic due hints while open; no new background service/task.
+- [x] F3 source Unrated flag and stronger local labels retained in remote ranking; UNKNOWN never inferred SFW.
+- [x] F3 local two-level categories and local counts; remote details do not create local read-state.
+- [ ] F3 full regression, final clean-commit build, external extraction and archive safety checks: see F3 report for actual results.
+- [ ] User manually accepts small rating save, real long-running automatic apply and three-hour scheduling before Pre-release.
+- [ ] Clean Windows/WebView2 and actual E/F device acceptance; review project/dependency licenses before binary publication.
+
+- [x] F2: separate development/portable rating audits; at most12 real requests, missing detail fields remain UNKNOWN.
+- [x] F2: bounded client rating preview/explicit-save entry; backup/rollback, shared lock and retry queue covered by isolated tests.
+- [x] F2: sensitive and UNKNOWN previews require separate explicit preferences; source tags and manual review remain independent.
+- [ ] F2: user accepts a small production save batch and checks actual PN/NU/SC filters after restart; no production apply was run by Codex.
+- [ ] F2: archive the uncommitted source and rebuild from a clean commit before any Release; do not publish the dirty local test package as final.
 
 - [x] User confirmed Public source publication for OB6-E2-F1. Recheck sensitive files before every push; binary Release and dependency-license acceptance remain separately pending.
 - [x] F1: distinguish bundle resources, executable directory, development root and userdata. Require both config JSON files and the complete production asset manifest.

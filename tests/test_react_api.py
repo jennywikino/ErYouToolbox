@@ -83,20 +83,23 @@ class ReactAPITests(unittest.TestCase):
         self.assertEqual([item["item_id"] for item in page["items"]], [1])
         self.assertEqual(page["items"][0]["category"], "Character")
 
-    def test_images_default_visible_and_explicit_preference_hides(self):
+    def test_unknown_images_require_explicit_preference(self):
         target = "/api/mod?source=gamebanana&item_type=Mod&item_id=1"
         _, item = self.api.get(target + "&show_unrated=0")
         self.assertEqual(item["preview_images"], [])
         self.assertEqual(item["preview_urls"], [])
         self.assertEqual(item["preview_state"], "PREFERENCE_HIDDEN")
-        _, item = self.api.get(target + "&show_unrated=1")
+        _, hidden = self.api.get(target + "&show_unrated=1")
+        self.assertEqual(hidden['preview_urls'],[])
+        _, item = self.api.get(target + "&show_unrated=1&show_unknown_preview=1")
         self.assertEqual(item["preview_images"], self.images)
         self.assertEqual(item["item_id"], 1)
 
     def test_adult_urls_obey_image_preference(self):
         item = {"content_rating_status": "ADULT", "preview_urls": ["https://example.org/a.jpg"],
                 "preview_images": self.images}
-        result = self.api.image_policy(item, True)
+        self.assertEqual(self.api.image_policy(item, True)['preview_urls'],[])
+        result = self.api.image_policy(item, True, True, True)
         self.assertEqual(result["preview_urls"], item["preview_urls"])
         self.assertEqual(result["preview_images"], self.images)
 

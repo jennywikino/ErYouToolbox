@@ -85,8 +85,8 @@ def schedule(database, checkpoint, *, client, backup_factory, apply=False,
                     'remaining_unknown': inventory(database, game)['missing']}
                 result['batches'].append(batch)
                 result['errors'].extend(errors_for(batch, number))
-                waits = [e['retry_after_seconds'] for e in result['errors']
-                         if e.get('http_status') == 429 and e.get('retry_after_seconds') is not None]
+                waits = [(e.get('retry_after_seconds') if e.get('retry_after_seconds') is not None else 21600) for e in result['errors']
+                         if e.get('http_status') in (403,429)]
                 if waits:
                     # Operational rate-limit report, not a committed scan position.
                     # Protects manual restarts even when no DB rows were committed.

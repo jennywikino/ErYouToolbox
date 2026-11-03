@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import type { Mod } from './types'
 import Icon from './Icons'
 import ReadStateControl from './ReadStateControl'
-import { canShowImages, dateLabel, discoveryTime, safeUrl, subscriptionActivity, cardPreviewUrl } from './policy'
+import { canShowModImages, dateLabel, discoveryTime, safeUrl, subscriptionActivity, cardPreviewUrl } from './policy'
 
 export function ImagePlaceholder({ reason = '暂无已保存预览图' }: { reason?: string }) {
   return <div className="image-placeholder"><Icon name="image" /><span>{reason}</span></div>
@@ -16,7 +16,7 @@ export default function PreviewCard({ mod, allowUnknown, onOpen, timeMode = 'cre
   const cardRef=useRef<HTMLElement>(null)
   const imageRef=useRef<HTMLImageElement>(null)
   useEffect(()=>{if(priority){setNear(true);return}const observer=new IntersectionObserver(entries=>{if(entries.some(e=>e.isIntersecting)){setNear(true);observer.disconnect()}},{rootMargin:'250px'});if(cardRef.current)observer.observe(cardRef.current);return()=>observer.disconnect()},[priority])
-  const allowed = canShowImages(mod.content_rating_status, allowUnknown)
+  const allowed = canShowModImages(mod, allowUnknown)
   const url = allowed ? cardPreviewUrl(mod,compact) : null
   useEffect(()=>{setFailed(false);setLoaded(!!imageRef.current?.complete && imageRef.current.naturalWidth>0)},[url,near])
   const hidden = mod.image_count > 0 && !allowed
@@ -49,6 +49,7 @@ export default function PreviewCard({ mod, allowUnknown, onOpen, timeMode = 'cre
       {mod.source_update_detected_at && <p className="mt-2 text-[11px] font-medium text-violet-700" title={mod.source_update_detected_at}>已记录来源更新</p>}
       {mod.subscription_followed_at && <p className="mt-2 text-[11px] text-slate-500">{subscriptionActivity(mod)}{mod.source_update_detected_at ? ` · 来源更新 ${dateLabel(mod.updated_at)}` : ''}</p>}
       </>}
+      {compact&&<div className="compact-status" title={mod.source_ratings?.codes.join(' / ')}><span>{dateLabel(timestamp.value)}</span><span>{mod.source_ratings?.verification==='explicit_labels'?'来源已分级':mod.source_ratings?.verification==='source_unrated_flag'?'来源未评级':'未核验'}</span></div>}
     </div>
     </button>
     {failed&&url&&<button className="small-button mx-4 my-2" onClick={()=>{setLoaded(false);setFailed(false)}}>重试预览图</button>}

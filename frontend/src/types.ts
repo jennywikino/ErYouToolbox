@@ -2,7 +2,8 @@ export interface Game { name: string; game_id: number }
 export interface Preview { image_url: string; thumbnail_url: string; switch_url: string }
 export interface Mod {
   is_read?: boolean | number
-  rank?: number; metrics?: {likes?: number; views?: number}; is_local?: boolean
+  rank?: number; metrics?: {likes?: number; views?: number; downloads?:number; comments?:number}; is_local?: boolean
+  files?: {name:string;uploaded_at_timestamp?:number;downloads?:number}[]; file_count?:number|null
   ranking_scope?: 'recent_sample'
   source_ratings?: {codes: string[]; verification: string}
 

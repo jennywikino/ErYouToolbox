@@ -6,9 +6,26 @@ export function safeUrl(value: unknown): string | null {
   } catch { return null }
 }
 
-export function canShowImages(rating: string, allowUnknown: boolean): boolean {
-  void rating
-  return allowUnknown
+export function imagePreferenceQuery(): string {
+  const prefs=imagePreferences()
+  return `&show_sensitive=${prefs.sensitive?'1':'0'}&show_unknown_preview=${prefs.unknown?'1':'0'}`
+}
+
+export function imagePreferences(){
+  return {sensitive:typeof localStorage!=='undefined'&&localStorage.getItem('showSensitivePreviews')==='1',
+    unknown:typeof localStorage!=='undefined'&&localStorage.getItem('showUnknownPreviews')==='1'}
+}
+
+export function canShowImages(rating: string, showImages: boolean, codes:string[]=['UNKNOWN'], sensitive=false, unknown=false): boolean {
+  if(!showImages)return false
+  if((['ADULT','NSFW'].includes(rating)||codes.some(c=>['pn','nu','sc','ft','bg','iv'].includes(c)))&&!sensitive)return false
+  if((!codes.length||codes.includes('UNKNOWN')||codes.includes('rp'))&&!unknown)return false
+  return true
+}
+
+export function canShowModImages(mod:{content_rating_status:string;source_ratings?:{codes:string[]}},showImages:boolean):boolean{
+  const prefs=imagePreferences()
+  return canShowImages(mod.content_rating_status,showImages,mod.source_ratings?.codes,prefs.sensitive,prefs.unknown)
 }
 
 export function imageIndex(index: number, count: number): number {
@@ -71,6 +88,7 @@ export function validBrowseSnapshot(value:unknown):boolean{
   return ['latest','subscriptions','popular'].includes(String(v.feed))
     && (v.author==null||(typeof v.author==='object'&&typeof (v.author as Record<string,unknown>).source==='string'&&Number.isSafeInteger((v.author as Record<string,unknown>).author_id)&&Number((v.author as Record<string,unknown>).author_id)>0))
     && ['game','draft','search','sort','readFilter','anchor'].every(key=>typeof v[key]==='string')
+    && ['category','subcategory'].every(key=>v[key]===undefined||typeof v[key]==='string')
     && ['all','read','unread'].includes(String(v.readFilter))
     && Number.isInteger(v.page)&&Number(v.page)>=0
     && (v.pageSize===undefined||[15,25,50].includes(Number(v.pageSize))&&typeof v.pageSize==='number')

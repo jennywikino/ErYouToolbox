@@ -2,25 +2,26 @@ import RelatedMods from './RelatedMods'
 import type {Author} from './Authors'
 import { useState } from 'react'
 import type { Mod } from './types'
-import { canShowImages, dateLabel, imageIndex, safeUrl } from './policy'
+import { canShowModImages, dateLabel, imageIndex, safeUrl } from './policy'
 import Icon from './Icons'
 import { ImagePlaceholder } from './PreviewCard'
 import FollowAuthor from './FollowAuthor'
 import ReadStateControl from './ReadStateControl'
+import DetailAuthor from './DetailAuthor'
 
 export default function ModDetail({ mod, allowUnknown, onFollowChange, onBack, onOpenAuthor, onOpenMod, ratings }: { mod: Mod; allowUnknown: boolean; onFollowChange: () => void; onBack: () => void; onOpenAuthor:(a:Author)=>void; onOpenMod:(m:Mod)=>void; ratings?:string[]|null }) {
   const [index, setIndex] = useState(0)
   const [failedUrl, setFailedUrl] = useState<string | null>(null)
   const [loadedUrl,setLoadedUrl]=useState<string|null>(null)
   const [failedThumbs,setFailedThumbs]=useState<Set<string>>(()=>new Set())
-  const allowed = canShowImages(mod.content_rating_status, allowUnknown)
+  const allowed = canShowModImages(mod, allowUnknown)
   const images = allowed ? (mod.preview_images || []) : []
   const current = images[imageIndex(index, images.length)]
   const currentUrl = safeUrl(current?.image_url)
   const authorUrl = safeUrl(mod.author_url)
   const originalUrl = safeUrl(mod.original_url)
   return <article>
-    <ReadStateControl source={mod.source} itemId={mod.item_id} auto onChange={onFollowChange}/>
+    {mod.is_local!==false?<ReadStateControl source={mod.source} itemId={mod.item_id} auto onChange={onFollowChange}/>:<p className="source-notice">来源详情 · 尚未入库，浏览不会创建已阅记录或保存作品。</p>}
     <div className="mb-6">
       <button onClick={onBack} className="back-link"><Icon name="left" />返回作品库</button>
       <p className="mt-5 text-xs font-medium text-violet-600">{mod.game_name || '暂无游戏信息'} · MOD {mod.item_id}</p>
@@ -64,6 +65,7 @@ export default function ModDetail({ mod, allowUnknown, onFollowChange, onBack, o
       </section>
       <aside className="detail-meta">
         <p className="section-kicker">作品信息</p>
+        {mod.author_id&&<DetailAuthor source={mod.source} authorId={mod.author_id} name={mod.author_name||'暂无作者'} onOpen={onOpenAuthor}/>}
         <h2 className="mt-3 text-lg font-semibold">{mod.author_id ? <button onClick={()=>onOpenAuthor({source:mod.source,author_id:mod.author_id!,name:mod.author_name||undefined})}>{mod.author_name || '暂无作者'}</button> : mod.author_name || '暂无作者'}</h2>
         <FollowAuthor source={mod.source} authorId={mod.author_id} onChange={onFollowChange} />
         {authorUrl && <a className="mt-2 inline-flex items-center gap-2 text-xs text-violet-700"
@@ -75,13 +77,18 @@ export default function ModDetail({ mod, allowUnknown, onFollowChange, onBack, o
           <dt>分类</dt><dd>{[mod.category, mod.subcategory].filter(Boolean).join(' / ') || '暂无数据'}</dd>
           <dt>内容分级</dt><dd>{mod.source_ratings?.codes.join(' / ') || 'UNKNOWN · 尚未验证'}</dd>
         </dl>
+        <section className="source-statistics" aria-label="来源统计">{(['likes','views','downloads','comments'] as const).map(key=><div key={key}><span>{{likes:'点赞',views:'浏览',downloads:'下载',comments:'评论'}[key]}</span><strong>{mod.metrics?.[key]===undefined?'暂无数据':mod.metrics[key]!.toLocaleString()}</strong></div>)}</section>
+        <details className="source-files"><summary>来源文件信息 · {mod.file_count===null||mod.file_count===undefined?'暂无数据':`${mod.file_count} 个文件`}</summary>
+         <p>只读信息，不提供文件下载或安装。</p>{mod.files?.map((file,i)=><div key={i}><strong>{file.name}</strong><p>{file.uploaded_at_timestamp?dateLabel(new Date(file.uploaded_at_timestamp*1000).toISOString()):'暂无上传日期'} · 下载 {file.downloads===undefined?'暂无数据':file.downloads}</p></div>)}
+        </details>
         {!!mod.tags?.length && <div className="mt-4 flex flex-wrap gap-1.5">{mod.tags.map(tag => <span key={tag} className="rating-tag">{tag}</span>)}</div>}
         <div className="mt-5 border-t border-slate-100 pt-4">
-          <p className="section-kicker">已保存简介</p>
+          <p className="section-kicker">{mod.is_local===false?'来源作品说明':'已保存简介'}</p>
           <p className="mt-3 whitespace-pre-wrap break-words text-sm leading-7 text-slate-600">{mod.description || '暂无已保存的作品简介。'}</p>
         </div>
         {originalUrl && <a className="primary-button mt-6" href={originalUrl} target="_blank" rel="noopener noreferrer">
           查看 GameBanana 原帖<Icon name="external" /></a>}
+        {originalUrl&&<a className="back-link mt-3" href={originalUrl+'#Posts'} target="_blank" rel="noopener noreferrer">查看原站评论 ↗</a>}
         <RelatedMods ratings={ratings} mod={mod} allowUnknown={allowUnknown} onOpen={onOpenMod} onAuthor={onOpenAuthor}/>
       </aside>
     </div>

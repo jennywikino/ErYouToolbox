@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 from eryoutoolbox.ui_queries import (  # noqa: E402
     DatabaseReadError, preview_display_decision, query_mod_detail, query_mods,
-    readonly_connection, query_discovery_status,
+    readonly_connection, query_discovery_status, query_categories,
 )
 from eryoutoolbox.app_resources import resource_root
 from eryoutoolbox.subscriptions import status as follow_status, set_follow
@@ -22,9 +22,12 @@ from eryoutoolbox.author_updates import preview as preview_authors
 from eryoutoolbox.popular import PopularClient, link_local
 from eryoutoolbox.read_states import get_state as get_read_state, set_read
 from web_sync import WebSync
-from eryoutoolbox.authors import author_list,member
+from eryoutoolbox.authors import author_list,member,fill_one
 from auto_sync import AutoSync
 from manage_auto_sync import task_status
+from rating_enrichment import RatingEnrichment
+from eryoutoolbox.content_ratings import preview_allowed
+from eryoutoolbox.source_detail import SourceDetail
 POPULAR = PopularClient()
 
 def author_summary(report):
@@ -53,6 +56,8 @@ class ReadOnlyAPI:
         self.runtime_root = local_root
         self.web_sync = WebSync(database, local_root, self.games)
         self.auto_sync=AutoSync(local_root,database,self.games,state_dir=None if local_root==ROOT else local_root/'logs/auto_sync')
+        self.rating_enrichment=RatingEnrichment(database,local_root)
+        self.source_detail=SourceDetail()
 
     @staticmethod
     def number(query, name, default, minimum, maximum):
@@ -62,9 +67,10 @@ class ReadOnlyAPI:
         return value
 
     @staticmethod
-    def image_policy(item, allow_unknown):
+    def image_policy(item, allow_unknown, show_sensitive=False, show_unknown=False):
         item = dict(item)
-        urls = item.get("preview_urls", []) if allow_unknown else []
+        permitted=preview_allowed(item,allow_unknown,show_sensitive,show_unknown)
+        urls = item.get("preview_urls", []) if permitted else []
         state = "DISPLAY" if urls else "NO_IMAGE" if not item.get("image_count", len(item.get("preview_urls", []))) else "PREFERENCE_HIDDEN"
         item["preview_state"] = state
         item["image_count"] = len(item.get("preview_images", item.get("preview_urls", [])))
@@ -77,7 +83,15 @@ class ReadOnlyAPI:
         path = urlsplit(target)
         query = parse_qs(path.query, keep_blank_values=True)
         allow_unknown = query.get("show_unrated", ["1"])[0] == "1"
+        show_sensitive = query.get('show_sensitive',['0'])[0]=='1'
+        show_unknown = query.get('show_unknown_preview',['0'])[0]=='1'
         try:
+            if path.path=='/api/rating-enrichment':
+                return 200,self.rating_enrichment.status()
+            if path.path=='/api/categories':
+                gid=self.number(query,'game',0,1,2**31-1) if query.get('game',[''])[0] else None
+                if gid is not None and gid not in {g['game_id'] for g in self.games}:raise ValueError('Unknown game')
+                return 200,query_categories(self.database,gid)
             if path.path in ('/api/authors','/api/author'):
                 specific=path.path=='/api/author'
                 aid=self.number(query,'author_id',0,1,2**63-1) if specific else None
@@ -87,6 +101,8 @@ class ReadOnlyAPI:
                     profile=member(self.web_sync.root,author['source'],author['author_id'],fetch=specific)
                     author['avatar_url']=profile.get('avatar_url')
                     author['profile_url']=f"https://gamebanana.com/members/{author['author_id']}" if author['source']=='gamebanana' else None
+                if not specific and query.get('fill_avatar',['0'])[0]=='1':
+                    fill_one(self.web_sync.root,result['items'])
                 return 200,result
             if path.path == '/api/auto-sync':
                 result=self.auto_sync.status()
@@ -112,7 +128,7 @@ class ReadOnlyAPI:
                     result=POPULAR.fetch(game,query.get('sort',['likes'])[0],self.number(query,'page',1,1,100),self.number(query,'limit',20,1,20),query.get('refresh',['0'])[0]=='1')
                 else:raise ValueError('Invalid ranking scope')
                 result=link_local(self.database,result)
-                result['items']=[self.image_policy(i,allow_unknown) for i in result['items']]
+                result['items']=[self.image_policy(i,allow_unknown,show_sensitive,show_unknown) for i in result['items']]
                 return 200,result
             if path.path == '/api/author-updates':
                 latest=self.runtime_root/'logs/author_updates/latest.json'
@@ -151,6 +167,7 @@ class ReadOnlyAPI:
                     read_filter=query.get('read',['all'])[0],
                     limit=limit, offset=offset, rating_codes=codes,
                     require_preview=query.get("with_images", ["0"])[0] == "1",
+                    category=query.get('category',[None])[0],subcategory=query.get('subcategory',[None])[0],
                 )
                 # Only enrich the current page with the already saved category text.
                 identities = [(item["source"], item["item_type"], item["item_id"])
@@ -172,7 +189,7 @@ class ReadOnlyAPI:
                             item["subcategory"] = row["subcategory"] if row else None
                     finally:
                         connection.close()
-                result["items"] = [self.image_policy(item, allow_unknown) for item in result["items"]]
+                result["items"] = [self.image_policy(item, allow_unknown,show_sensitive,show_unknown) for item in result["items"]]
                 return 200, {**result, "limit": limit, "offset": offset,
                              "discovery": query_discovery_status(self.database, game_id)}
             if path.path == "/api/mod":
@@ -184,8 +201,14 @@ class ReadOnlyAPI:
                 item = query_mod_detail(self.database, source=source,
                                        item_type=item_type, item_id=item_id)
                 if item is None:
+                    if source=='gamebanana' and item_type=='Mod' and query.get('remote_game'):
+                        gid=self.number(query,'remote_game',0,1,2**31-1)
+                        game=next((g for g in self.games if g['game_id']==gid),None)
+                        if game is None:raise ValueError('Unknown source game')
+                        item=self.source_detail.fetch(item_id,game)
+                        return 200,self.image_policy(item,allow_unknown,show_sensitive,show_unknown)
                     return 404, {"error": "The MOD is not in the local database."}
-                return 200, self.image_policy(item, allow_unknown)
+                return 200, self.image_policy(item, allow_unknown,show_sensitive,show_unknown)
             return 404, {"error": "Unknown endpoint."}
         except (ValueError, TypeError) as exc:
             return 400, {"error": str(exc)}
@@ -198,7 +221,7 @@ class ReadOnlyAPI:
 def make_handler(api: ReadOnlyAPI, port: int):
     class Handler(BaseHTTPRequestHandler):
         def do_POST(self):
-            if self.path not in ('/api/subscription','/api/author-updates','/api/read-state','/api/sync','/api/auto-sync','/api/auto-sync/run','/api/auto-sync/startup','/api/history-sync') or not valid_write_origin(self.headers,port) or self.headers.get('Transfer-Encoding'):
+            if self.path not in ('/api/subscription','/api/author-updates','/api/read-state','/api/sync','/api/auto-sync','/api/auto-sync/run','/api/auto-sync/startup','/api/history-sync','/api/rating-enrichment') or not valid_write_origin(self.headers,port) or self.headers.get('Transfer-Encoding'):
                 self.send_error(403)
                 return
             try:
@@ -206,7 +229,9 @@ def make_handler(api: ReadOnlyAPI, port: int):
                 if not 0<length<=2048:
                     raise ValueError('Invalid request size')
                 body = json.loads(self.rfile.read(length))
-                if self.path == '/api/auto-sync':
+                if self.path == '/api/rating-enrichment':
+                    result=api.rating_enrichment.start(body)
+                elif self.path == '/api/auto-sync':
                     result=api.auto_sync.configure(body)
                 elif self.path == '/api/history-sync':
                     history=api.auto_sync.history()

@@ -27,7 +27,7 @@ class PopularTests(unittest.TestCase):
         data=self.api.fetch(GAME,page=2,limit=2)
         self.assertEqual([i['rank'] for i in data['items']],[3,4])
         self.assertEqual(data['items'][0]['metrics'],{'likes':123})
-        self.assertEqual(data['items'][0]['source_ratings']['codes'],['UNKNOWN'])
+        self.assertEqual(data['items'][0]['source_ratings']['codes'],['-'])
     def test_images_use_existing_normalizer(self):
         image=self.api.fetch(GAME,limit=2)['items'][0]['preview_images'][0]
         self.assertTrue(image['image_url'].endswith('/original.jpg'));self.assertTrue(image['thumbnail_url'].endswith('/530-90_original.jpg'))

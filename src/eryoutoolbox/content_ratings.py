@@ -1,6 +1,21 @@
 """Source ratings are independent of image preferences and human review."""
 import json
 
+SENSITIVE_CODES = {'pn', 'nu', 'sc', 'ft', 'bg', 'iv'}
+
+
+def preview_allowed(item, show_images, show_sensitive=False, show_unknown=False):
+    if not show_images:
+        return False
+    evidence=item.get('source_ratings')
+    values=evidence.get('codes') if isinstance(evidence,dict) else None
+    codes=set(values) if isinstance(values,list) and all(isinstance(c,str) for c in values) else {'UNKNOWN'}
+    if (item.get('content_rating_status') in {'ADULT','NSFW'} or codes & SENSITIVE_CODES) and not show_sensitive:
+        return False
+    if (codes & {'UNKNOWN','rp'} or not codes) and not show_unknown:
+        return False
+    return True
+
 def source_ratings(raw):
     try:
         data = json.loads(raw or '{}') if isinstance(raw, str) else raw
@@ -19,13 +34,13 @@ def source_ratings(raw):
     fields = fields if isinstance(fields, dict) else {}
     fields = {k: fields[k] for k in ('_aContentRatings','_bHasContentRatings','_sInitialVisibility') if k in fields}
     ratings = fields.get('_aContentRatings')
-    if isinstance(ratings, dict) and ratings and all(isinstance(k, str) and isinstance(v, str) for k,v in ratings.items()):
+    if isinstance(ratings, dict) and ratings and all(isinstance(k, str) and k and k==k.strip() and isinstance(v, str) and v.strip() for k,v in ratings.items()):
         return {'codes': list(ratings), 'verification': 'explicit_labels', 'raw': fields}
     flag = fields.get('_bHasContentRatings', record.get('has_content_ratings'))
     if isinstance(flag, bool):
         fields.setdefault('_bHasContentRatings', flag)
     if flag is False:
-        return {'codes': ['-'], 'verification': 'source_unrated_flag', 'raw': {'_bHasContentRatings': False}}
+        return {'codes': ['-'], 'verification': 'source_unrated_flag', 'raw': fields}
     return {'codes': ['UNKNOWN'], 'verification': 'unverified_labels',
             'raw': {k:fields[k] for k in ('_aContentRatings','_bHasContentRatings','_sInitialVisibility') if k in fields}}
 

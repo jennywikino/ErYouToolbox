@@ -110,10 +110,11 @@ class AutoSync:
         next_check=None
         if settings['mode']!='off':
             due=(record.get('started_epoch',0) if record else 0)+settings['interval_hours']*3600
-            next_check=datetime.fromtimestamp(max(time.time(),due,record.get('not_before',0) if record else 0),timezone.utc).isoformat()
+            next_check=datetime.fromtimestamp(max(due,record.get('not_before',0) if record else 0),timezone.utc).isoformat()
         registration=self.directory/'registration.json'
         task=json.loads(registration.read_text(encoding='utf-8')) if registration.exists() else {'registered':False}
-        return {'settings':settings,'last_run':record,'next_due':next_check,'task':task}
+        return {'settings':settings,'configured':(self.directory/'settings.json').is_file(),
+                'last_run':record,'next_due':next_check,'task':task}
 
     def run(self,*,force=False,dry_run=False,max_pages=None,game=None,preserve_preview=False):
         # A missing disk must not create an empty SQLite database.
