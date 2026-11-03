@@ -21,6 +21,7 @@ from eryoutoolbox.models import normalize_record
 from backfill_content_ratings import instance_lock
 from react_api import ReadOnlyAPI
 from web_sync import recent_window,WebSync
+from auto_sync import AutoSync,DEFAULTS
 
 
 class CleanupTests(unittest.TestCase):
@@ -114,5 +115,16 @@ class CleanupTests(unittest.TestCase):
  def test_metrics_only_true_source_numbers_and_saved_roundtrip(self):
   r=normalize_record({'_idRow':1,'_nLikeCount':0,'_nViewCount':123,'_nDownloadCount':None,'_nPostCount':True},{'game_id':8552})
   self.assertEqual(r['metrics'],{'likes':0,'views':123});self.assertEqual(summary(r)['metrics'],r['metrics'])
+ def test_long_retry_after_blocks_manual_and_automatic_refresh(self):
+  import time
+  game={'game_id':8552,'name':'G'};service=WebSync(self.db,self.root,[game]);before=time.time()
+  result={'records':[],'request_count':1,'actual_record_count':0,'collected_at':'2026-11-03T00:00:00Z','failure_reasons':[{'http_status':429,'retry_after_seconds':86400,'reason':'rate limited'}]}
+  with patch('web_sync.collect_game',return_value=result):service.check_games([game],10,1,window_days=90)
+  cooldown=json.loads((self.root/'logs/history_sync/cooldown.json').read_text())
+  self.assertGreaterEqual(cooldown['not_before'],before+86400)
+  with self.assertRaisesRegex(ValueError,'cooldown'):service.start({'action':'check','game':8552})
+  auto=AutoSync(self.root,self.db,[game],state_dir=self.root/'device');auto.configure({**DEFAULTS,'mode':'apply'})
+  with patch('web_sync.collect_game') as call:
+   self.assertEqual(auto.run(force=True)['status'],'cooldown');call.assert_not_called()
 
 if __name__=='__main__':unittest.main()

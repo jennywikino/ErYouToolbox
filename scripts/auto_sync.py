@@ -171,7 +171,7 @@ class AutoSync:
                               scanned=state.get('scanned',0),statistics=state.get('statistics'),
                               failures=state.get('failures',[]),coverage=state.get('coverage','incomplete'),
                               inserted=state.get('report',{}).get('inserted',0),source_updated=state.get('report',{}).get('source_update_events',0))
-                if state.get('scan_status')=='rate_limited':record['not_before']=time.time()+settings['interval_hours']*3600
+                if state.get('scan_status')=='rate_limited':record['not_before']=max(time.time()+settings['interval_hours']*3600,self.history().cooldown_until())
                 elif not self.cancel.is_set():
                     from eryoutoolbox.author_updates import run_rotation
                     from eryoutoolbox.gamebanana import TIMEOUT,HEADERS

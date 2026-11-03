@@ -11,7 +11,8 @@ Target: 0.5.0-rc3. A local candidate is not a formal release.
 - [x] Earlier history is manual only, committed checkpoints/overlap preserved; no new system task.
 - [x] Cache whitelist/preview/hash/path/locks and no business-data deletion; actual isolated WebView2 DiskCache call passed.
 - [x] Source date fallback does not create update evidence; unknown metrics not zero; original licenses included by builder.
-- [ ] Final clean-source artifact, full regression and external extraction: record exact results in F4 handoff and BUILD_INFO.
+- [x] Python484/484, frontend16/16 and production build; long Retry-After blocks manual and automatic requests.
+- [ ] Final clean-source artifact and external extraction: record exact results in F4 handoff and BUILD_INFO.
 - [ ] User clean Windows, real E/F migration, three-hour automation, backed-up production small apply/history acceptance.
 - [ ] Owner license/distribution review and explicit Release/tag approval.
 

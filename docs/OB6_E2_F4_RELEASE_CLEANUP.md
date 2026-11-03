@@ -53,7 +53,7 @@ pywebview 官方支持 storage_path；本轮明确指定可移动 userdata/cache
 
 ## F4-E：验收与已知限制
 
-已通过关联测试：缓存/90天专项13项、桌面17项、历史评级兼容13项、历史扫描33项、查询/接口专项及前端16项/生产构建。最终全量Python483/483通过（209.979秒），前端16/16及生产构建通过；证据 F4-python-release.txt、F4-frontend.txt、F4-build.txt。旧测试按退役功能及日期回退的新语义更新，未删除失败用例；失败日志保留。
+已通过关联测试：缓存/90天专项14项、桌面17项、历史评级兼容13项、历史扫描33项、查询/接口专项及前端16项/生产构建。统一冷却修复后最终全量Python484/484通过（170.239秒），前端16/16及生产构建通过；证据 F4-python-cooldown-final.txt、F4-frontend.txt、F4-build.txt。旧测试按退役功能及日期回退的新语义更新，未删除失败用例；失败日志保留。
 
 预检ZIP源码外中文/空格目录真实EXE通过：缺games/前端资源拒绝启动；不需评级配置；官方DiskCache清理成功；旧评级任务不可启动；首次授权off/3小时持久化；已阅/关注、返回/前进、目录移动/重启、异常退出、重复实例、不可写userdata与端口释放。0次测试网络，写入仅临时fixture库。初次错误对话框取证过早只读到按钮，已等待Static文本就绪后复验，未放松产品校验。
 
@@ -76,3 +76,5 @@ $python = Join-Path $env:LOCALAPPDATA 'ErYouToolbox\venv\Scripts\python.exe'
 ```
 
 官方依据：https://api.gamebanana.com/docs/endpoints/Core/List/New ，https://pywebview.flowrl.com/api/ ，https://learn.microsoft.com/en-us/dotnet/api/microsoft.web.webview2.core.corewebview2profile.clearbrowsingdataasync 。
+
+最终入口审查补齐较长Retry-After：手动/自动共用既有历史cooldown.json安全状态；等待至少来源要求的时间（无明确时间保守3小时），立即刷新不能绕过。新增24小时Retry-After回归，484项全量通过；保留先前483项成功和失败日志，未删除用例。

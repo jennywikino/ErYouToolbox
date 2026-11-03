@@ -4,6 +4,7 @@ import json
 import secrets
 import threading
 import time
+import math
 from pathlib import Path
 
 import httpx
@@ -120,6 +121,11 @@ class WebSync:
         self.refresh()
         with self.mutex:return json.loads(json.dumps(self.state))
 
+    def check_cooldown(self):
+        path=self.root/'logs/history_sync/cooldown.json'
+        if path.exists() and time.time()<json.loads(path.read_text(encoding='utf-8')).get('not_before',0):
+            raise ValueError('GameBanana cooldown active; Retry-After has not elapsed')
+
     def start(self,body):
         self.refresh()
         if body.get('action')=='discard':
@@ -143,6 +149,7 @@ class WebSync:
             if self.state['status'] in ('checking','importing'):raise ValueError('A sync is already running')
             action=body.get('action')
             if action in ('check','check_all','resume'):
+                self.check_cooldown()
                 required={'action'} if action=='check_all' else {'action','game'}
                 if not required<=set(body) or set(body)-required-{'max_pages'}:raise ValueError('Invalid check request')
                 budget=body.get('max_pages',3)
@@ -177,6 +184,7 @@ class WebSync:
     def check(self,game):self.check_games([game],20)
 
     def check_games(self,games,per_page=10,max_pages=3,resume=False,window_days=None):
+        self.check_cooldown()
         if not 1<=len(games)<=6 or type(max_pages) is not int or not 1<=max_pages<=MAX_PAGES:raise ValueError('Bounded games/pages required')
         if per_page not in (10,20):raise ValueError('Invalid web page size')
         checkpoints=self.committed();summaries=[];snapshots=[];identities={};stopped=False
@@ -208,6 +216,11 @@ class WebSync:
                         if failures:
                             summary['failures'].extend(failures)
                             stopped=any(f.get('http_status') in (429,403) or f.get('stop_requested') for f in failures)
+                            if stopped:
+                                from auto_sync import atomic_json
+                                waits=[f.get('retry_after_seconds') for f in failures]
+                                wait=max([10800]+[w for w in waits if type(w) in (int,float) and math.isfinite(w) and w>=0])
+                                atomic_json(self.root/'logs/history_sync/cooldown.json',{'not_before':time.time()+wait,'http_status':next((f.get('http_status') for f in failures if f.get('http_status') in (429,403)),None),'observed_at':utc()})
                             summary['scan_status']='rate_limited' if stopped else 'check_failed'
                             break
                         if fetched>per_page or len(result['records'])>per_page:raise ValueError('Source exceeded candidate limit')
