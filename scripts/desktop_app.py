@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import faulthandler
 from contextlib import ExitStack, closing as close_resource
 from http.server import ThreadingHTTPServer
 import json
@@ -25,6 +26,7 @@ RESOURCES = resource_root()
 from eryoutoolbox.database import initialize_database, SCHEMA_VERSION
 from react_api import ReadOnlyAPI, make_handler
 from backfill_content_ratings import instance_lock
+from desktop_lifecycle import DesktopLifecycle
 
 VERSION = '0.5.0-rc3'
 
@@ -99,10 +101,17 @@ def desktop_handler(api, port, static, closing):
     base = make_handler(api, port)
     static = Path(static).resolve()
     class Handler(base):
+        def setup(self):
+            self.request.settimeout(5)  # Incomplete local HTTP bodies must not hold writes forever.
+            super().setup()
+
         def log_message(self, fmt, *args):
             logging.info(fmt, *args)
 
         def do_POST(self):
+            if closing.is_set():
+                self.send_error(503,'Desktop is closing')
+                return
             with self.server.lifecycle_lock:
                 self._post()
 
@@ -125,6 +134,9 @@ def desktop_handler(api, port, static, closing):
             super().do_POST()
 
         def do_GET(self):
+            if closing.is_set():
+                self.send_error(503,'Desktop is closing')
+                return
             if self.headers.get('Host') != f'127.0.0.1:{port}':
                 self.send_error(403)
                 return
@@ -164,6 +176,7 @@ def create_server(root, database, static=RESOURCES/'frontend/dist', *, resources
     closing = threading.Event()
     # Binding port zero atomically reserves a free loopback port; no check/bind race.
     server = ThreadingHTTPServer(('127.0.0.1', 0), None)
+    server.daemon_threads=False  # Drain request handlers, do not hide leaks with daemon threads.
     server.lifecycle_lock = threading.RLock()
     server.RequestHandlerClass = desktop_handler(api, server.server_port, static, closing)
     return server, api, closing
@@ -207,10 +220,15 @@ def main():
             stack.enter_context(instance_lock(home/'.desktop.lock'))
             root,database=prepare_data(home)
             (root/'logs').mkdir(exist_ok=True)
-            logging.basicConfig(filename=root/'logs/desktop.log',level=logging.INFO,encoding='utf-8')
+            logging.basicConfig(filename=root/'logs/desktop.log',level=logging.INFO,encoding='utf-8',format='%(asctime)s %(threadName)s %(levelname)s %(message)s',force=True)
+            trace=stack.enter_context((root/'logs/shutdown-threads.log').open('a',encoding='utf-8'))
+            if args.smoke_seconds:faulthandler.dump_traceback_later(20,repeat=True,file=trace)
+            stack.callback(faulthandler.cancel_dump_traceback_later)
             server,api,closing=create_server(root,database)
-            thread=threading.Thread(target=server.serve_forever,name='desktop-http',daemon=True)
+            thread=threading.Thread(target=server.serve_forever,name='desktop-http',daemon=False)
             thread.start()
+            lifecycle=DesktopLifecycle(server,api,closing,thread,root,trace=trace)
+            stack.callback(lifecycle.finish)  # Also covers failure before the GUI starts.
             import webview
             # Stable engineering identity; the display brand does not change userdata.
             import ctypes
@@ -221,6 +239,7 @@ def main():
             url=f'http://127.0.0.1:{server.server_port}/'
             logging.info('Desktop %s ready: %s database=%s',VERSION,url,database)
             window=webview.create_window('妙妙二玩箱',url,width=1440,height=960,min_size=(960,640))
+            lifecycle.window=window
             def attach_cache():
                 # Only Microsoft's DiskCache kind, never AllProfile/DOM storage.
                 # No filesystem deletion of an active browser profile.
@@ -242,35 +261,26 @@ def main():
                     if errors:raise RuntimeError('; '.join(errors))
                 api.cache.webview_clear=clear_disk_cache
             window.events.loaded += attach_cache
-            def before_close():
-                # Reject new writes, then wait for known workers without interrupting transactions.
-                with server.lifecycle_lock:
-                    closing.set()
-                    try:
-                        if api.web_sync.worker_active or api.auto_sync.running.locked() or api.history_sync.running.locked():
-                            raise RuntimeError('A sync is running')
-                        with instance_lock(root/'logs/content_ratings/instance.lock'):
-                            pass
-                    except RuntimeError:
-                        closing.clear()
-                        window.create_confirmation_dialog('任务尚未结束','同步任务仍在运行，请等待完成或在同步详情中停止后关闭。')
-                        return False
-                return True
-            window.events.closing += before_close
+            window.events.closing += lifecycle.before_close
             def smoke():
+                lifecycle.smoke_worker=threading.current_thread()
                 try:
-                    if not window.events.loaded.wait(30):
-                        raise RuntimeError('WebView document did not load')
-                    time.sleep(max(1,args.smoke_seconds))
+                    deadline=time.monotonic()+30
+                    while not window.events.loaded.wait(.1):
+                        if closing.is_set():return
+                        if time.monotonic()>deadline:raise RuntimeError('WebView document did not load')
+                    if closing.wait(max(1,args.smoke_seconds)):return
                     from urllib.request import urlopen
                     with urlopen(url+'api/games', timeout=5) as response:
                         games=json.load(response)
+                    logging.info('smoke collecting native title and DOM')
                     report={'version':VERSION,'url':url,'games':len(games['games']),
                             'window_title':str(window.native.Text),
                             'content_ratings':'retired',
                             'resources':str(RESOURCES),'userdata':str(root),
                             'page':window.evaluate_js("({title:document.title,text:document.body.innerText,root:!!document.querySelector('#root')})")}
                     from System.Drawing import Icon
+                    logging.info('smoke DOM returned; collecting icon')
                     from System.Drawing.Imaging import ImageFormat
                     from System.IO import MemoryStream
                     def icon_pixels(icon):
@@ -289,7 +299,8 @@ def main():
                 except Exception:
                     logging.exception('Desktop smoke failed')
                 finally:
-                    window.destroy()
+                    logging.info('smoke requesting window.destroy')
+                    if not closing.is_set():window.destroy()
             try:
                 # Portable browser storage is explicitly scoped. The native API
                 # clears DiskCache only; pywebview must not recursively remove it.
@@ -297,15 +308,11 @@ def main():
                 from eryoutoolbox.cache_management import safe_child
                 safe_child(root,browser_storage)
                 webview.start(smoke if args.smoke_seconds else None,gui='edgechromium',private_mode=False,storage_path=str(browser_storage),icon=str(RESOURCES/'assets/branding/MiaomiaoEryouxiang_icon.ico'))
+                logging.info('shutdown GUI loop returned')
             finally:
-                closing.set()
-                api.web_sync.cancel.set()
-                while api.web_sync.worker_active or api.auto_sync.running.locked() or api.history_sync.running.locked():
-                    time.sleep(0.2)
-                server.shutdown()
-                server.server_close()
-                thread.join(timeout=5)
+                lifecycle.finish()
                 server=None
+        logging.info('shutdown desktop_lock_released; main returning normally')
         return 0
     except Exception as exc:
         logging.exception('Desktop startup or shutdown failed')

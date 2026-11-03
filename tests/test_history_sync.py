@@ -88,6 +88,22 @@ class HistoryTests(unittest.TestCase):
         self.mode['mode']='apply';self.h.configure({**DEFAULTS,'enabled':True,'paused':True})
         self.assertEqual(self.run_scan()['status'],'disabled');self.assertEqual(before,self.count('mods'))
 
+    def test_desktop_cancel_before_scan_does_not_advance_or_change_settings(self):
+        before=self.h.settings();self.h.cancel.set()
+        report=self.run_scan()
+        self.assertEqual(report['status'],'stopped');self.assertFalse(self.requests)
+        self.assertEqual(self.h.committed(),{});self.assertEqual(self.count('mods'),0)
+        self.assertEqual(self.h.settings(),before)
+
+    def test_desktop_cancel_after_last_response_prevents_apply(self):
+        def response(request):
+            self.h.cancel.set()
+            return httpx.Response(200,json={'_aRecords':[self.record(8,8552),self.record(7,8552)],'_aMetadata':{'_nPerpage':2,'_nRecordCount':8}})
+        self.overrides[(8552,1)]=response
+        report=self.run_scan(max_pages=1)
+        self.assertEqual(self.count('mods'),0);self.assertEqual(self.h.committed(),{})
+        self.assertEqual(report['status'],'stopped')
+
     def test_insert_drift_pauses_then_revalidates(self):
         self.run_scan();old=self.h.committed();self.rows[8552].insert(0,9);self.next_day()
         report=self.run_scan();self.assertEqual(report['status'],'failed');self.assertEqual(self.h.committed(),old)

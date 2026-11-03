@@ -2,6 +2,27 @@
 
 Target: 0.5.0-rc3. A local candidate is not a formal release.
 
+## F6 退出修复门槛
+
+- [x] 诊断：部分POST持有lifecycle_lock、GUI关闭同步等待锁的控制实验堆栈；源码/冻结60秒普通预览也有通过样本，不虚称旧事故唯一原因已确定。
+- [x] GUI非阻塞取消/排空协调、HTTP读取超时、非daemon HTTP请求排空、事务完成后关闭、无os._exit及无生产数据清理。
+- [x] 12项退出专用、35项历史回归、16项前端与构建；最终Python504/504通过，0失败。
+- [x] 预验收包外部解压真实20条来源预览后关闭、重启、三轮启闭、异常恢复、端口重绑/文件锁重取/SQLite完整通过。
+- 最终交付必须使用干净提交ZIP并重复独立实测；准确结果存于F6-final-native.json、F6-final-isolation.json及交付清单，发布前核对BUILD_INFO源码SHA与相邻ZIP散列，不能用预构建包替代。
+- [ ] 无开发依赖的干净Windows10/11实机/虚拟机验收仍缺；不自动发布Release或创建tag。
+
+## 2026-11-03 Release 依赖环境门槛
+
+- [x] 最终 F5 delivery-final ZIP：Python315 DLL、PYZ模块、pywebview/pythonnet/clr_loader、HTTP/TLS/SQLite依赖及React静态文件已审计。
+- [x] 外部系统依赖明确：WebView2 Evergreen Runtime、.NET Framework；非 Node/pnpm 或现代.NET SDK。
+- [x] 缺少 WebView2 的模拟测试2项通过，安装URL明确，错误在创建用户库之前处理；未卸载本机Runtime。
+- [x] 开发机 Windows11 x64：实际 EXE 首次空库0条，GameBanana原神1页/1次请求/20条预览，未确认入库，库仍0条。
+- [ ] 干净 Windows10 x64（建议22H2）：未装Python/Node/pnpm，完整ZIP首次启动、网络预览、重启及退出实测。
+- [ ] 干净 Windows11 x64：同上；记录Windows版本、.NET Release、WebView2版本、ZIP散列与截图。
+- [ ] 干净快照缺少WebView2时验证真实原生安装提示；完成后从官方安装器安装并重试，不修改开发机Runtime。
+- [ ] 环境兼容结论仍BLOCK，不能把开发机清空PATH的测试等同干净系统。结果见 RELEASE_ENVIRONMENT_AUDIT.md。
+- [x] 原环境审计中的联网后退出超时证据保留；F6新增关闭协调并通过原预览场景预验收，不以旧F5结果代替新测试。最终包验收另列。
+
 ## F5 中文品牌
 
 - [x] 用户确认 ICO/PNG 可公开分发；不生成替代图标。

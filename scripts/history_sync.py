@@ -39,6 +39,8 @@ class HistorySync:
         self.directory = self.root/'logs/history_sync'
         self.mode_provider = mode_provider or AutoSync(self.root, self.database, self.games).settings
         self.running = threading.Lock()
+        self.cancel = threading.Event()
+        self.worker=None
 
     def settings(self):
         path = self.directory/'settings.json'
@@ -105,6 +107,7 @@ class HistorySync:
 
     def launch(self,manual=False):
         if not self.running.acquire(blocking=False): return {'status':'already_running'}
+        self.cancel.clear()
         def work():
             try: self.run(manual=manual,dry_run=manual and self.mode_provider()['mode']=='off')
             except Exception as exc:
@@ -112,7 +115,8 @@ class HistorySync:
                 if not isinstance(exc,RuntimeError) or 'instance is active' not in str(exc):
                     atomic_json(self.directory/'latest.json',{'status':'failed','error':str(exc),'ended_at':utc(),'requests':0})
             finally: self.running.release()
-        threading.Thread(target=work,daemon=False).start()
+        self.worker=threading.Thread(target=work,name='history-sync-worker',daemon=False)
+        self.worker.start()
         return {'status':'requested'}
 
     def _protect(self, connection, records):
@@ -165,6 +169,7 @@ class HistorySync:
         # Supplied clients are used by bounded real probes and offline tests.
         with nullcontext(client) if client is not None else httpx.Client(timeout=TIMEOUT,headers=HEADERS) as source:
             for g in selected:
+                if self.cancel.is_set():report['stopped']=True;break
                 gid = str(g['game_id']); attempt = state['games'].get(gid,{})
                 if not dry_run and not manual and now<attempt.get('last_attempt_epoch',-INTERVAL)+INTERVAL:
                     report['games'].append({'game_id':g['game_id'],'name':g['name'],'status':'not_due'}); continue
@@ -210,6 +215,7 @@ class HistorySync:
         last_page=None; detected_drift=None
         try:
             for page in planned:
+                if self.cancel.is_set():raise InterruptedError('Desktop closing; boundary not advanced')
                 if entry['requests']>=budget: break
                 if not dry_run or manual:
                     current=self.settings()
@@ -296,6 +302,7 @@ class HistorySync:
                 nonlocal backup
                 backup=verified_backup(self.database)
             def guard(c):
+                if self.cancel.is_set():raise InterruptedError('Desktop closing; history write cancelled before changes')
                 current=self.settings()
                 if self.mode_provider()['mode']!='apply' or not current['enabled'] or current['paused']: raise ValueError('History apply authorization changed')
                 # Recheck formal checkpoint under the importer write transaction.
@@ -320,7 +327,7 @@ class HistorySync:
                 else: entry['proposed_checkpoint']=cp
                 entry['status']='partial' if entry['failures'] else 'success'
             except BaseException as exc:
-                entry['status']='stopped' if isinstance(exc,KeyboardInterrupt) else 'failed'
+                entry['status']='stopped' if isinstance(exc,(KeyboardInterrupt,InterruptedError)) else 'failed'
                 entry['failures'].append({'reason':f'Import rolled back / not committed: {exc}'})
             finally:connection.close()
         if not dry_run:

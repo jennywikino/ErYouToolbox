@@ -74,7 +74,7 @@ print(json.dumps({'embedded_icon_images':len(actual),'icon_matches_supplied':Tru
         raise RuntimeError('Packaged resources differ from pre-build inputs')
     versions = json.loads(subprocess.check_output([str(args.packaging_python),'-c',
         "import importlib.metadata as m,json,platform; print(json.dumps({'python':platform.python_version(),**{n:m.version(n) for n in ['pywebview','pythonnet','pyinstaller','httpx']}}))"],text=True))
-    manifest={'version':VERSION,'build_revision':'OB6-E2-F5','display_name':'妙妙二玩箱','executable':'妙妙二玩箱.exe','source_commit':git_sha,'working_tree_dirty':dirty,'platform':platform_info,'dependencies':versions,'resource_manifest':'_internal/'+MANIFEST}
+    manifest={'version':VERSION,'build_revision':'OB6-E2-F6','display_name':'妙妙二玩箱','executable':'妙妙二玩箱.exe','source_commit':git_sha,'working_tree_dirty':dirty,'platform':platform_info,'dependencies':versions,'resource_manifest':'_internal/'+MANIFEST}
     manifest.update(brand_check)
     (package/'BUILD_INFO.json').write_text(json.dumps(manifest,indent=2),encoding='utf-8')
     # Reproduce actual third-party notices without collecting environment or

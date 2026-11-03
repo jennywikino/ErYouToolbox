@@ -30,3 +30,7 @@ Dependency notices/installed versions must accompany distribution: React/Vite/Ta
 ## Before public release
 
 Test the complete ZIP on a clean Windows machine, actual E/F drive migration, long-running three-hour automation, explicit small production sync and manual history continuation after backing up. Review distribution/license conditions. Check the adjacent SHA-256 file and clean source commit in `BUILD_INFO.json`. Unsigned binaries may trigger Windows warnings. No Release or tag has been created automatically.
+
+## F6 shutdown correction
+
+Closing now cancels bounded read-only scans, waits for active SQLite work to commit or roll back, drains the local HTTP service, releases the instance lock, and closes the window. The GUI no longer synchronously waits on the HTTP write lock. Partial local request bodies have a read timeout; diagnostic smoke waits are cancellable. Slow writes leave the window open with a clear status rather than force-killing the process. Diagnostic logs are under userdata/logs. Existing userdata/settings/checkpoints are retained. Python504 tests and frontend16 tests passed; source-external preview/close/restart acceptance is recorded separately. Clean Windows10/11 acceptance is still pending; no formal Release is declared.

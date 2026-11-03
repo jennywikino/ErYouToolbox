@@ -46,6 +46,7 @@ class AutoSync:
         self.running=threading.Lock()
         self.cancel=threading.Event()
         self.current_service=None
+        self.worker=None
 
     def stop(self):
         self.cancel.set()
@@ -69,7 +70,8 @@ class AutoSync:
             finally:self.running.release()
         # Browser lifetime must not own the job. A normal server shutdown can
         # finish the bounded worker rather than abandoning an active transaction.
-        threading.Thread(target=target,daemon=False).start()
+        self.worker=threading.Thread(target=target,name='auto-sync-worker',daemon=False)
+        self.worker.start()
         return {'status':'requested'}
 
     def settings(self):

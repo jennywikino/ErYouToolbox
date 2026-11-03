@@ -53,6 +53,7 @@ class WebSync:
         self.database,self.root,self.games=Path(database),Path(root),games
         self.mutex=threading.Lock();self.cancel=threading.Event()
         self.worker_active=False
+        self.worker=None
         self.state={'status':'idle'};self.candidate=None;self.task_id=secrets.token_hex(16)
         self.path=self.root/'logs/web_sync/task.json'
         self.binding=self.database.resolve().relative_to(self.root.resolve()).as_posix()
@@ -166,7 +167,8 @@ class WebSync:
                 self.state={**self.state,'status':'importing'};target,args=self.apply,()
             else:raise ValueError('Invalid sync request')
             self.worker_active=True
-            threading.Thread(target=self.work,args=(target,args),daemon=True).start()
+            self.worker=threading.Thread(target=self.work,args=(target,args),name='web-sync-worker',daemon=True)
+            self.worker.start()
             return dict(self.state)
 
     def work(self,target,args):
