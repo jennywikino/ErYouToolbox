@@ -1,12 +1,12 @@
-# ErYouToolbox 0.5.0-rc3 — Windows portable candidate
+# 妙妙二玩箱 0.5.0-rc3 — Windows portable candidate
 
 Pre-release draft. Publication and tag creation require separate user acceptance.
 
-ErYouToolbox discovers and organizes public GameBanana MOD metadata for six games. It does not download/install MOD files, provide accounts, or synchronize personal data to the cloud.
+妙妙二玩箱 discovers and organizes public GameBanana MOD metadata for six games. It does not download/install MOD files, provide accounts, or synchronize personal data to the cloud.
 
 ## Run and update
 
-Fully extract `ErYouToolbox-0.5.0-rc3-win-x64.zip` into a writable directory and open `ErYouToolbox.exe`. Keep `_internal` beside the EXE. Windows x64 and Microsoft Edge WebView2 Evergreen Runtime are required. Client runtime does not require Python, Node, pnpm or Vite.
+Fully extract `ErYouToolbox-0.5.0-rc3-win-x64.zip` into a writable directory and open `妙妙二玩箱.exe`. Keep `_internal` beside the EXE. Windows x64 and Microsoft Edge WebView2 Evergreen Runtime are required. Client runtime does not require Python, Node, pnpm or Vite.
 
 First run creates an empty SQLite library under EXE-adjacent `userdata`. Existing personal libraries are never embedded, automatically moved or overwritten. Close all writers and verify an independent backup before intentionally moving complete userdata or replacing program files. Do not copy a live SQLite main file alone. Keep an older program directory and its matching verified data backup for rollback; no schema migration is introduced here.
 

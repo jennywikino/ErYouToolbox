@@ -2,6 +2,16 @@
 
 Target: 0.5.0-rc3. A local candidate is not a formal release.
 
+## F5 中文品牌
+
+- [x] 用户确认 ICO/PNG 可公开分发；不生成替代图标。
+- [x] 妙妙二玩箱：窗口、React、EXE 产品名/描述、Release 草稿显示名称。
+- [x] 中文 EXE 文件名；工程身份与 userdata 路径不变。
+- [x] 构建比较实际 PE 图标与原 ICO，资源完整性涵盖 ICO/PNG。
+- [x] 相关 Python28项、前端16项及生产构建通过。
+- [ ] 用户在目标电脑检查 Explorer、任务栏、Alt+Tab、快捷方式图标与 Windows 图标缓存。
+- [ ] 新候选解压验收后，再另行授权创建标签及 Pre-release。
+
 ## Current rc3 gate
 
 - [x] Rating UI/enrichment retired; legacy filters/preferences ignored; DB compatibility data retained.

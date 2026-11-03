@@ -212,12 +212,15 @@ def main():
             thread=threading.Thread(target=server.serve_forever,name='desktop-http',daemon=True)
             thread.start()
             import webview
+            # Stable engineering identity; the display brand does not change userdata.
+            import ctypes
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID('ErYouToolbox.Desktop')
             webview.settings['ALLOW_DOWNLOADS'] = False
             webview.settings['ALLOW_FILE_URLS'] = False
             webview.settings['OPEN_EXTERNAL_LINKS_IN_BROWSER'] = True
             url=f'http://127.0.0.1:{server.server_port}/'
             logging.info('Desktop %s ready: %s database=%s',VERSION,url,database)
-            window=webview.create_window('二游工具盒 ErYouToolbox',url,width=1440,height=960,min_size=(960,640))
+            window=webview.create_window('妙妙二玩箱',url,width=1440,height=960,min_size=(960,640))
             def attach_cache():
                 # Only Microsoft's DiskCache kind, never AllProfile/DOM storage.
                 # No filesystem deletion of an active browser profile.
@@ -263,9 +266,19 @@ def main():
                     with urlopen(url+'api/games', timeout=5) as response:
                         games=json.load(response)
                     report={'version':VERSION,'url':url,'games':len(games['games']),
+                            'window_title':str(window.native.Text),
                             'content_ratings':'retired',
                             'resources':str(RESOURCES),'userdata':str(root),
                             'page':window.evaluate_js("({title:document.title,text:document.body.innerText,root:!!document.querySelector('#root')})")}
+                    from System.Drawing import Icon
+                    def icon_pixels(icon):
+                        bitmap=icon.ToBitmap()
+                        try:
+                            return [[int(bitmap.GetPixel(x,y).ToArgb()) for x in range(bitmap.Width)] for y in range(bitmap.Height)]
+                        finally:bitmap.Dispose()
+                    expected_icon=Icon(str(RESOURCES/'assets/branding/MiaomiaoEryouxiang_icon.ico'))
+                    try:report['window_icon_matches_brand']=icon_pixels(window.native.Icon)==icon_pixels(expected_icon)
+                    finally:expected_icon.Dispose()
                     (root/'logs/desktop-smoke.json').write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding='utf-8')
                 except Exception:
                     logging.exception('Desktop smoke failed')
@@ -277,7 +290,7 @@ def main():
                 browser_storage=root/'cache/webview'
                 from eryoutoolbox.cache_management import safe_child
                 safe_child(root,browser_storage)
-                webview.start(smoke if args.smoke_seconds else None,gui='edgechromium',private_mode=False,storage_path=str(browser_storage))
+                webview.start(smoke if args.smoke_seconds else None,gui='edgechromium',private_mode=False,storage_path=str(browser_storage),icon=str(RESOURCES/'assets/branding/MiaomiaoEryouxiang_icon.ico'))
             finally:
                 closing.set()
                 api.web_sync.cancel.set()
@@ -291,7 +304,7 @@ def main():
     except Exception as exc:
         logging.exception('Desktop startup or shutdown failed')
         import ctypes
-        ctypes.windll.user32.MessageBoxW(None,str(exc),'ErYouToolbox could not start',0x10)
+        ctypes.windll.user32.MessageBoxW(None,str(exc),'妙妙二玩箱启动失败',0x10)
         return 1
     finally:
         if server is not None:

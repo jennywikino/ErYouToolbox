@@ -99,7 +99,7 @@ class DesktopTests(unittest.TestCase):
         _,db=prepare_data(moved)
         with closing(sqlite3.connect(db)) as c:self.assertEqual(c.execute('SELECT COUNT(*) FROM mods').fetchone()[0],1)
         original=db.read_bytes()
-        (moved/'ErYouToolbox.exe').write_bytes(b'new-version')
+        (moved/'妙妙二玩箱.exe').write_bytes(b'new-version')
         prepare_data(moved)
         self.assertEqual(original,db.read_bytes())
 

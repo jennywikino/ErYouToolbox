@@ -117,7 +117,7 @@ def close_error(child):
     @callback
     def window(handle,_):
         pid=wintypes.DWORD();user.GetWindowThreadProcessId(handle,ctypes.byref(pid))
-        if pid.value==child.pid and text(handle)=='ErYouToolbox could not start':found.append(handle)
+        if pid.value==child.pid and text(handle)=='妙妙二玩箱启动失败':found.append(handle)
         return True
     for _ in range(150):
         user.EnumWindows(window,0)
@@ -155,11 +155,11 @@ def main():
             for name in archive.namelist():
                 if not (base/name).resolve().is_relative_to(base):raise ValueError('Unsafe archive path')
             archive.extractall(base)
-        exe=base/'ErYouToolbox/ErYouToolbox.exe'
+        exe=base/'ErYouToolbox/妙妙二玩箱.exe'
         # Missing resources must fail even though the source directory still has all configs.
         manifest=json.loads((exe.parent/'_internal/RESOURCE_MANIFEST.json').read_text(encoding='utf-8'))
         javascript=next(n for n in manifest['files'] if n.endswith('.js'))
-        for relative in ('config/games.json','frontend/dist/index.html',javascript):
+        for relative in ('assets/branding/MiaomiaoEryouxiang_icon.ico','assets/branding/MiaomiaoEryouxiang_icon.png','config/games.json','frontend/dist/index.html',javascript):
             resource=exe.parent/'_internal'/relative
             original=resource.read_bytes();resource.unlink()
             try:
@@ -196,6 +196,9 @@ def main():
             if str(data) not in report['checks']['unwritable_userdata'].replace('\\\\','\\'):raise RuntimeError('Missing unwritable userdata path')
         finally:subprocess.run(['icacls',str(data),'/remove:d',f'*{sid}'],capture_output=True,check=True)
         report['checks']['first_window']=json.loads((exe.parent/'userdata/logs/desktop-smoke.json').read_text(encoding='utf-8'))
+        brand=report['checks']['first_window']
+        if brand.get('window_title')!='妙妙二玩箱' or brand['page']['title']!='妙妙二玩箱 · MOD 作品库' or not brand.get('window_icon_matches_brand'):
+            raise RuntimeError('Native title, page title, or window icon does not match the supplied brand')
         db=exe.parent/'userdata/data/eryoutoolbox.db'
         with closing(sqlite3.connect(db)) as c:
             c.execute("INSERT INTO mods(source,item_type,item_id,game_id,game_name,title,author_id,author_name,first_seen_at,last_checked_at) VALUES('gamebanana','Mod',900000001,8552,'Genshin Impact','Fixture MOD',900000002,'Fixture Author','2026-01-01T00:00:00Z','2026-01-01T00:00:00Z')")
@@ -213,7 +216,7 @@ def main():
         report['checks']['duplicate']=close_error(duplicate)
         stopped(child,port)
         # Real directory move outside source; same userdata, new executable path and cwd.
-        moved=base/'已迁移 中文 客户端';shutil.move(exe.parent,moved);exe=moved/'ErYouToolbox.exe'
+        moved=base/'已迁移 中文 客户端';shutil.move(exe.parent,moved);exe=moved/'妙妙二玩箱.exe'
         child,_,log,offset=start(exe,base)
         port=ready(child,log,offset)
         read=request(port,'/api/read-state?source=gamebanana&item_id=900000001')

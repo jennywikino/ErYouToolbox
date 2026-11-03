@@ -1,4 +1,8 @@
-# ErYouToolbox（二游工具盒）
+# 妙妙二玩箱（ErYouToolbox）
+
+![妙妙二玩箱品牌图标](assets/branding/MiaomiaoEryouxiang_icon.png)
+
+中文产品名称为“妙妙二玩箱”，英文工程名、仓库及数据身份继续使用 ErYouToolbox。图标由用户提供并确认公开分发权限，详见 [品牌资源说明](assets/branding/README.md)。
 
 面向 GameBanana 公开 MOD 信息的本地整理工具，使用 Python、SQLite 与 React / TypeScript。数据保存在本机；不登录来源站点，不下载 MOD 文件，不提供转载授权。目标代码仓库：`jennywikino/ErYouToolbox`。
 
@@ -6,7 +10,7 @@
 
 ## Windows 桌面候选版
 
-使用 pywebview + PyInstaller onedir，内嵌现有 React 生产资源与 Python 本地 API。完整解压后双击 `ErYouToolbox.exe`，无需安装 Python、Node 或启动 Vite；需要 Windows x64 和 Microsoft Edge WebView2 Evergreen Runtime。
+使用 pywebview + PyInstaller onedir，内嵌现有 React 生产资源与 Python 本地 API。完整解压后双击 `妙妙二玩箱.exe`，无需安装 Python、Node 或启动 Vite；需要 Windows x64 和 Microsoft Edge WebView2 Evergreen Runtime。
 
 首次启动在 EXE 旁创建 `userdata/` 和**空作品库**，不会读取或迁移源码目录的个人数据库。更新时保留整个 userdata，不将其覆盖或上传。关闭客户端后不执行后台检查；Web 版计划任务与便携版数据独立，尚不支持便携版后台计划任务。
 

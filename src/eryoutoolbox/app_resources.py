@@ -9,6 +9,7 @@ from urllib.parse import urlsplit, unquote
 FORMAT = 'eryoutoolbox-resources-v1'
 MANIFEST = 'RESOURCE_MANIFEST.json'
 CONFIGS = ('config/games.json',)
+BRANDING = ('assets/branding/MiaomiaoEryouxiang_icon.ico', 'assets/branding/MiaomiaoEryouxiang_icon.png')
 
 
 def development_root():
@@ -40,7 +41,7 @@ class _References(HTMLParser):
 
 def inventory(root):
     root = Path(root).resolve()
-    required = [*CONFIGS, 'frontend/dist/index.html']
+    required = [*CONFIGS, *BRANDING, 'frontend/dist/index.html']
     for name in required:
         if not (root/name).is_file():
             raise ValueError(f'Missing application resource: {root/name}')
@@ -56,7 +57,7 @@ def inventory(root):
         path = (root/'frontend/dist'/name).resolve()
         if not path.is_relative_to(root/'frontend/dist/assets') or not path.is_file():
             raise ValueError(f'Missing or unsafe frontend asset: {path}')
-    paths = [root/name for name in CONFIGS] + sorted((root/'frontend/dist').rglob('*'))
+    paths = [root/name for name in (*CONFIGS, *BRANDING)] + sorted((root/'frontend/dist').rglob('*'))
     files = {}
     for path in paths:
         if path.is_file():

@@ -192,7 +192,7 @@ export default function App() {
 
   return <div className="app-shell">
     <nav className="icon-rail" aria-label="主导航">
-      <a className="brand-mark" href="#" aria-label="二游工具盒首页">E<span>。</span></a>
+      <a className="brand-mark" href="#" aria-label="妙妙二玩箱首页"><img src={new URL('../../assets/branding/MiaomiaoEryouxiang_icon.png', import.meta.url).href} alt="妙妙二玩箱" width="36" height="36" /></a>
       <a href="#" className="rail-button active" aria-label="MOD 作品库" title="MOD 作品库"><Icon name="grid" /></a>
       <div className="flex-1" />
       <a href="http://127.0.0.1:8501" target="_blank" rel="noopener noreferrer"
@@ -233,7 +233,7 @@ export default function App() {
             {feed === 'subscriptions' && <><MyAuthors revision={feedRevision} onOpen={openAuthor} onChange={()=>setFeedRevision(v=>v+1)}/><AuthorUpdateCheck /></>}
             {author&&<AuthorHeader key={`${author.source}:${author.author_id}`} author={author} onChange={()=>setFeedRevision(v=>v+1)}/>}
             <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
-              <div><p className="section-kicker">二游工具盒 · 本地浏览</p>
+              <div><p className="section-kicker">妙妙二玩箱 · 本地浏览</p>
                 <h1 className="mt-2 text-2xl font-semibold tracking-tight text-slate-900">{author?'作者作品':feed === 'subscriptions' ? '订阅动态' : '最新 MOD'}<span className="text-violet-500">。</span></h1>
                 {feed === 'subscriptions' && <p className="mt-2 text-xs text-slate-500">仅显示已关注作者的本地作品 · 包含关注前历史作品 · 非实时追踪 · 最近更新仅含 source_updated 事件</p>}
                 <p className="mt-2 text-xs text-slate-500">{currentGame} · {withImages ? '优先浏览已保存图片的作品' : '浏览全部已收录作品'}</p>
@@ -285,7 +285,7 @@ export default function App() {
           <div><p className="section-kicker">浏览设置</p><h2 className="mt-2 text-base font-semibold text-slate-800">留一点空间给发现</h2></div>
           <CategorySidebar game={game} category={category} subcategory={subcategory} revision={feedRevision} onSelect={selectCategory} disabled={feed==='popular'}/>
           <div className="mt-auto border-t border-slate-100 pt-5 text-[11px] leading-6 text-slate-400">
-            <p>ErYouToolbox · V0.5 RC3</p><p>数据来自本机 SQLite</p><p>图片来源于作品原帖</p>
+            <p>妙妙二玩箱 · V0.5 RC3</p><p>数据来自本机 SQLite</p><p>图片来源于作品原帖</p>
           </div>
         </aside>
       </div>

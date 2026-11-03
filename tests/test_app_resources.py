@@ -27,6 +27,9 @@ class ResourceTests(unittest.TestCase):
         (self.root/'frontend/dist/index.html').write_text('<script src="/assets/main.js"></script><link href="/assets/main.css">')
         (self.root/'frontend/dist/assets/main.js').write_text('console.log(1)')
         (self.root/'frontend/dist/assets/main.css').write_text('body{}')
+        (self.root/'assets/branding').mkdir(parents=True)
+        for name in ('MiaomiaoEryouxiang_icon.ico','MiaomiaoEryouxiang_icon.png'):
+            shutil.copyfile(ROOT/'assets/branding'/name,self.root/'assets/branding'/name)
         self.manifest=inventory(self.root)
         (self.root/MANIFEST).write_text(json.dumps(self.manifest))
 
@@ -39,7 +42,7 @@ class ResourceTests(unittest.TestCase):
         self.assertEqual(verify_resources(self.root,require_manifest=True),self.manifest)
 
     def test_each_required_resource_missing_is_fatal(self):
-        for name in ('config/games.json','frontend/dist/index.html','frontend/dist/assets/main.js','frontend/dist/assets/main.css',MANIFEST):
+        for name in ('assets/branding/MiaomiaoEryouxiang_icon.ico','assets/branding/MiaomiaoEryouxiang_icon.png','config/games.json','frontend/dist/index.html','frontend/dist/assets/main.js','frontend/dist/assets/main.css',MANIFEST):
             path=self.root/name
             original=path.read_bytes();path.unlink()
             try:

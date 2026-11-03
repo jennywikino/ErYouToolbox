@@ -24,6 +24,8 @@ def main():
     if platform_info != {'system':'Windows','machine':'AMD64','bits':64}:
         parser.error('Packaging requires a Windows AMD64 64-bit Python environment')
     resources = inventory(ROOT)  # Fail before building if JSON or any HTML entry asset is missing.
+    if not (ROOT/'assets/branding/windows_version.txt').is_file():
+        parser.error('Missing Windows brand version metadata')
     output = args.output.resolve()
     if not output.is_relative_to((ROOT/'dist').resolve()) or output == (ROOT/'dist').resolve():
         parser.error('Build output must be a new directory inside project dist')
@@ -37,22 +39,43 @@ def main():
     git_sha = subprocess.check_output(['git','rev-parse','HEAD'],cwd=ROOT,text=True).strip()
     dirty = bool(subprocess.check_output(['git','status','--porcelain'],cwd=ROOT,text=True).strip())
     command = [str(args.packaging_python), '-m','PyInstaller','--noconfirm','--clean','--onedir','--windowed',
-               '--name','ErYouToolbox','--distpath',str(output),'--workpath',str(build/'work'),
+               '--name','妙妙二玩箱','--icon',str(ROOT/'assets/branding/MiaomiaoEryouxiang_icon.ico'),'--version-file',str(ROOT/'assets/branding/windows_version.txt'),'--distpath',str(output),'--workpath',str(build/'work'),
                '--specpath',str(build), '--paths',str(ROOT/'src'),'--paths',str(ROOT/'scripts'),
                '--collect-all','webview','--collect-all','pythonnet','--collect-all','clr_loader',
                '--hidden-import','history_sync','--hidden-import','eryoutoolbox.author_updates',
                '--add-data',f'{ROOT / "frontend/dist"};frontend/dist',
                '--add-data',f'{ROOT / "config/games.json"};config',
+               '--add-data',f'{ROOT / "assets/branding/MiaomiaoEryouxiang_icon.ico"};assets/branding',
+               '--add-data',f'{ROOT / "assets/branding/MiaomiaoEryouxiang_icon.png"};assets/branding',
                str(ROOT/'scripts/desktop_app.py')]
     command[-1:-1] = ['--add-data', f'{resource_manifest};.']
     subprocess.run(command,cwd=ROOT,check=True)
     package = output/'ErYouToolbox'
+    (output/'妙妙二玩箱').rename(package)
+    # Compare actual PE icon payloads to the supplied ICO, not Explorer's cache.
+    icon_check = """import pefile,struct,sys,hashlib,json
+from pathlib import Path
+raw=Path(sys.argv[2]).read_bytes(); count=struct.unpack_from('<H',raw,4)[0]
+expected=[]
+for i in range(count):
+ size,offset=struct.unpack_from('<II',raw,6+i*16+8); expected.append(hashlib.sha256(raw[offset:offset+size]).hexdigest())
+pe=pefile.PE(sys.argv[1]); actual=[]
+for entry in pe.DIRECTORY_ENTRY_RESOURCE.entries:
+ if entry.id==3:
+  for image in entry.directory.entries:
+   for lang in image.directory.entries:
+    data=lang.data.struct; actual.append(hashlib.sha256(pe.get_data(data.OffsetToData,data.Size)).hexdigest())
+assert sorted(actual)==sorted(expected), 'EXE icon differs from supplied ICO'
+print(json.dumps({'embedded_icon_images':len(actual),'icon_matches_supplied':True}))
+"""
+    brand_check=json.loads(subprocess.check_output([str(args.packaging_python),'-c',icon_check,str(package/'妙妙二玩箱.exe'),str(ROOT/'assets/branding/MiaomiaoEryouxiang_icon.ico')],text=True))
     bundled = verify_resources(package/'_internal',require_manifest=True)
     if bundled != resources:
         raise RuntimeError('Packaged resources differ from pre-build inputs')
     versions = json.loads(subprocess.check_output([str(args.packaging_python),'-c',
         "import importlib.metadata as m,json,platform; print(json.dumps({'python':platform.python_version(),**{n:m.version(n) for n in ['pywebview','pythonnet','pyinstaller','httpx']}}))"],text=True))
-    manifest={'version':VERSION,'build_revision':'OB6-E2-F4','source_commit':git_sha,'working_tree_dirty':dirty,'platform':platform_info,'dependencies':versions,'resource_manifest':'_internal/'+MANIFEST}
+    manifest={'version':VERSION,'build_revision':'OB6-E2-F5','display_name':'妙妙二玩箱','executable':'妙妙二玩箱.exe','source_commit':git_sha,'working_tree_dirty':dirty,'platform':platform_info,'dependencies':versions,'resource_manifest':'_internal/'+MANIFEST}
+    manifest.update(brand_check)
     (package/'BUILD_INFO.json').write_text(json.dumps(manifest,indent=2),encoding='utf-8')
     # Reproduce actual third-party notices without collecting environment or
     # installation metadata (direct_url, credentials, paths, etc.).
@@ -64,8 +87,8 @@ def main():
     (package/'THIRD_PARTY_NOTICES.json').write_text(json.dumps(notices,ensure_ascii=False,indent=2),encoding='utf-8')
     (package/'CANDIDATE_NOTES.md').write_bytes((ROOT/'docs/PRERELEASE_0_5_0_RC3.md').read_bytes())
     (package/'README.txt').write_text(
-        'ErYouToolbox '+VERSION+' Windows x64 portable candidate\n'
-        'Extract the whole folder, then double-click ErYouToolbox.exe. Requires Microsoft Edge WebView2 Evergreen Runtime.\n'
+        '妙妙二玩箱 (ErYouToolbox) '+VERSION+' Windows x64 portable candidate\n'
+        'Extract the whole folder, then double-click 妙妙二玩箱.exe. Requires Microsoft Edge WebView2 Evergreen Runtime.\n'
         'First launch creates an EMPTY library in userdata next to the EXE. No personal database is included.\n'
         'Keep userdata when updating. Close the app and pause all writers before backup or moving drives.\n'
         'Do not copy an active development database here. Existing personal data migration is not automatic.\n'
