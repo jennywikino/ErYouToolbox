@@ -2,6 +2,33 @@
 
 日期：2026-11-03。目标 0.5.0-rc1；不是正式 1.0 或 GitHub Release。
 
+## OB6-E2-F1 启动修复与隔离验收（最新）
+
+用户目录 `E:/codex/ErYouToolbox` 的 EXE SHA-256 为 `CE1B07B13067A3458667C502004E96467BD3195767DE3B151E70C3A747F80948`，与早期 `dist/desktop-0.5.0-rc1` 的失败EXE完全一致；其BUILD_INFO为0d4eaf8、dirty=true、EXE时间10:21，并非545c994最终产物。旧包的games/ratings实际已位于_internal/config，缺的不是资源本体，而是旧API从冻结后的react_api.__file__.parents[1]推算到了EXE外层config。此错误不由cwd决定。上一轮保留多个同版本构建且独立目录验收不足，造成错误产物容易被误取；旧产物保留作为失败证据，不再作为交付。
+
+统一路径：`app_resources.resource_root()` 在冻结时仅使用sys._MEIPASS；开发时定位源码根。`executable_root()`独立定位EXE所在目录；userdata仍为EXE旁可写目录。API用独立resources_root读取不可缺失的games/ratings，不再以运行状态目录推断只读配置。userdata/config的现有镜像仅为原有同步模块兼容而保留，不是API配置fallback，也不代替包内校验。未改变内容分级默认策略、schema或同步业务。
+
+构建前验证两份JSON、index.html及其引用的JS/CSS，生成带逐文件SHA-256的RESOURCE_MANIFEST.json。PyInstaller使用独立构建目录和--clean；收集后在_internal再次验证清单与输入完全一致，缺资源或散列变化禁止生成交付ZIP。启动前同样验证，缺资源时在创建userdata之前报完整路径，不返回空分级或放宽过滤。F1包名包含OB6-E2-F1，BUILD_INFO含build_revision，避免混淆同版本早期ZIP。
+
+测试：新增资源回归8项、桌面17项、API14项通过；完整Python445/445（151.966秒），前端15/15及生产构建通过。证据 `logs/desktop-build/F1-python-tests.txt`。前期测试驱动的Unicode日志偏移、隐藏列表h1选择器、异常消息反斜杠比较问题均保留BLOCK报告，修正驱动后完整隔离验收PASS，不以失败报告替代成功证据。
+
+真实隔离验收：`tests/desktop_isolation_check.py` 将ZIP解压至Windows TEMP下全新中文/空格目录（源码目录外C盘），从另一cwd启动，子进程PATH仅含Windows目录，清空PYTHONHOME/PYTHONPATH，无Vite。原生WebView通过临时回环CDP测试驱动实际点击MOD卡片、进入详情、点击关注；详情自动已阅。Node仅作为外部验收驱动，客户端不调用Node。使用明确标识的离线Fixture，不下载图片，不请求GameBanana，不导入私人数据。
+
+已实测：6游戏、17分级、React资源、原生详情、已阅/关注保存、重启持久化、整个目录迁移、窗口关闭释放端口；移除ratings/games/index/JS时明确失败且不建userdata；测试目录ACL拒绝写入时报错，恢复ACL后正常启动；重复启动不替换现有锁；仅终止本测试直接启动的空闲EXE后，保留锁文件也能重启。完整证据 `logs/desktop-build/F1-isolation4.json`；最终源码提交重建后的复验以 `F1-final-isolation.json` 为准。没有修改用户已解压目录、生产库或系统任务。
+
+最终目录：`dist/desktop-0.5.0-rc1-F1-final/`，ZIP为 `ErYouToolbox-0.5.0-rc1-OB6-E2-F1-win-x64.zip`。准确源码提交见包内BUILD_INFO，ZIP散列见同目录.sha256；只交付此F1包，不使用旧同版本产物。
+
+```powershell
+$python = Join-Path $env:LOCALAPPDATA 'ErYouToolbox\venv\Scripts\python.exe'
+& $python -m unittest discover -s tests -p test_app_resources.py -v
+& $python scripts/build_desktop.py --output dist/desktop-0.5.0-rc1-F1-new
+& $python tests/desktop_isolation_check.py --archive dist/desktop-0.5.0-rc1-F1-new/ErYouToolbox-0.5.0-rc1-OB6-E2-F1-win-x64.zip --report logs/desktop-build/F1-manual-isolation.json
+```
+
+用户手动验收：完整解压F1 ZIP至新目录，核对BUILD_INFO的F1标识与源码SHA；双击，观察空库及六游戏/分级筛选；自行选择游戏检查预览后决定是否确认入库。关闭重开验证已阅关注。在另一台无Python/Node的Windows和真实F盘上仍需人工确认；本机受限PATH不等价于干净机器。本轮没有迁移1097条私人数据，首次空库正常；关闭后的后台计划任务仍未支持。不得现在创建Release或版本标签。
+
+本轮用户明确批准Public源码提交/推送，旧Private记录不再作为阻断。审核白名单源码、测试、文档后正常推进master，不推送运行数据或EXE，不改旧标签/历史。以下OB6-E2原始记录中的Public阻断仅保留为历史。
+
 ## 架构与边界
 
 pywebview 6.2.1 的 WinForms / EdgeChromium 独立窗口，PyInstaller 6.22.3 onedir；Python 3.15.1 x64、pythonnet 3.2.1、httpx 0.28.1。依赖仅装入本机 LOCALAPPDATA/ErYouToolbox/packaging-venv，不修改开发虚拟环境或全局 Python。依赖完整清单在构建证据 packaging-freeze.txt。

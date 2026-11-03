@@ -2,7 +2,10 @@
 
 Target: 0.5.0-rc1. A local candidate is not a formal release.
 
-- [ ] Confirm repository visibility, publication permissions and dependency licenses. Current public origin blocks pushing the original private history under project handoff rules.
+- [x] User confirmed Public source publication for OB6-E2-F1. Recheck sensitive files before every push; binary Release and dependency-license acceptance remain separately pending.
+- [x] F1: distinguish bundle resources, executable directory, development root and userdata. Require both config JSON files and the complete production asset manifest.
+- [x] F1: build/startup resource validation fails on missing config/index/JS or checksum mismatch; no empty-rating fallback.
+- [x] F1: actual extracted EXE tested outside source in a Chinese/space path with a different cwd; native detail/read/follow, moved-directory persistence, duplicate lock and abnormal-exit recovery passed. Evidence in F1-isolation4.json; repeat against the final commit artifact.
 - [ ] Record exact source commit and require BUILD_INFO working_tree_dirty=false for a releasable artifact.
 - [ ] Pass Python regressions, frontend tests and production build; retain failed-test evidence.
 - [ ] Build on Windows x64 in the isolated packaging environment; preserve dependency versions.

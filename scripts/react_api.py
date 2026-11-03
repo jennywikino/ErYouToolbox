@@ -16,6 +16,7 @@ from eryoutoolbox.ui_queries import (  # noqa: E402
     DatabaseReadError, preview_display_decision, query_mod_detail, query_mods,
     readonly_connection, query_discovery_status,
 )
+from eryoutoolbox.app_resources import resource_root
 from eryoutoolbox.subscriptions import status as follow_status, set_follow
 from eryoutoolbox.author_updates import preview as preview_authors
 from eryoutoolbox.popular import PopularClient, link_local
@@ -43,11 +44,11 @@ def valid_write_origin(headers, port):
 
 
 class ReadOnlyAPI:
-    def __init__(self, database: Path, games_path: Path = ROOT / "config" / "games.json", *, runtime_root: Path | None = None):
-        config_root = runtime_root if runtime_root is not None else ROOT
+    def __init__(self, database: Path, games_path: Path | None = None, *, runtime_root: Path | None = None, resources_root: Path | None = None):
+        config_root = Path(resources_root) if resources_root is not None else resource_root()
         self.rating_config = json.loads((config_root / "config" / "content_ratings.json").read_text(encoding="utf-8"))
         self.database = database
-        self.games = json.loads(games_path.read_text(encoding="utf-8"))["games"]
+        self.games = json.loads((games_path or config_root/'config/games.json').read_text(encoding="utf-8"))["games"]
         local_root=runtime_root if runtime_root is not None else (ROOT if database.resolve().is_relative_to(ROOT) else database.parent)
         self.runtime_root = local_root
         self.web_sync = WebSync(database, local_root, self.games)

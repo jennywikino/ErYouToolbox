@@ -2,6 +2,14 @@
 
 更新日期：2026-11-03。Web 业务功能冻结；当前进入 OB6-E2 Windows 桌面候选验收，未发布正式版。
 
+## OB6-E2-F1（当前）
+
+- 定位用户失败EXE与早期dirty失败产物完全同SHA；已打入_internal的配置被旧API错误定位到EXE旁。旧包不可发布，保留证据不删除。
+- 新增统一只读资源路径、包内SHA-256清单及构建/启动完整性校验；userdata与资源分离。没有改变五列UI、同步业务、schema、关注或图片回填。
+- 全量Python445项、前端15项、生产构建通过。源码外C盘中文/空格目录真实解压：原生详情点击、已阅/关注、关闭端口、重启/移动持久化、缺资源/不可写/重复启动/异常退出恢复PASS；仅离线Fixture，0次远程请求，无生产写入。
+- 交付仅使用带OB6-E2-F1标识的新ZIP，见docs/OB6_E2_DESKTOP_PACKAGE.md；BUILD_INFO记录准确源码SHA。无Python/Node的干净机器与家庭F盘仍待人工验收。
+- 用户明确批准Public仓库正常提交/推送，旧Private/Public阻断记录仅属历史；审核源码白名单后归档，不上传EXE、数据、日志，不创建Release或tag。
+
 ## OB6-E2 桌面候选（当前）
 
 - 版本 0.5.0-rc1；复用 React 生产构建与现有 Python API、采集/导入/备份逻辑，pywebview + PyInstaller onedir，不启动 Vite。

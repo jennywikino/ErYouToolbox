@@ -5,9 +5,12 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import sys
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT/'src'))
+from eryoutoolbox.app_resources import inventory, verify_resources, MANIFEST
 VERSION = '0.5.0-rc1'
 
 
@@ -20,29 +23,36 @@ def main():
         "import json,platform,struct; print(json.dumps({'system':platform.system(),'machine':platform.machine(),'bits':struct.calcsize('P')*8}))"],text=True))
     if platform_info != {'system':'Windows','machine':'AMD64','bits':64}:
         parser.error('Packaging requires a Windows AMD64 64-bit Python environment')
-    if not (ROOT/'frontend/dist/index.html').is_file():
-        parser.error('Run the production frontend build first')
+    resources = inventory(ROOT)  # Fail before building if JSON or any HTML entry asset is missing.
     output = args.output.resolve()
     if not output.is_relative_to((ROOT/'dist').resolve()) or output == (ROOT/'dist').resolve():
         parser.error('Build output must be a new directory inside project dist')
     if output.exists():
         parser.error('Output exists; preserve it before choosing a fresh build destination')
     output.mkdir(parents=True)
+    build = ROOT/'logs/desktop-build'/output.name
+    build.mkdir(parents=True, exist_ok=True)
+    resource_manifest = build/MANIFEST
+    resource_manifest.write_text(json.dumps(resources,indent=2),encoding='utf-8')
     git_sha = subprocess.check_output(['git','rev-parse','HEAD'],cwd=ROOT,text=True).strip()
     dirty = bool(subprocess.check_output(['git','status','--porcelain'],cwd=ROOT,text=True).strip())
-    command = [str(args.packaging_python), '-m','PyInstaller','--noconfirm','--onedir','--windowed',
-               '--name','ErYouToolbox','--distpath',str(output),'--workpath',str(ROOT/'logs/desktop-build/work'),
-               '--specpath',str(ROOT/'logs/desktop-build'), '--paths',str(ROOT/'src'),'--paths',str(ROOT/'scripts'),
+    command = [str(args.packaging_python), '-m','PyInstaller','--noconfirm','--clean','--onedir','--windowed',
+               '--name','ErYouToolbox','--distpath',str(output),'--workpath',str(build/'work'),
+               '--specpath',str(build), '--paths',str(ROOT/'src'),'--paths',str(ROOT/'scripts'),
                '--collect-all','webview','--collect-all','pythonnet','--collect-all','clr_loader',
                '--hidden-import','history_sync','--hidden-import','eryoutoolbox.author_updates',
                '--add-data',f'{ROOT / "frontend/dist"};frontend/dist',
                '--add-data',f'{ROOT / "config/games.json"};config',
                '--add-data',f'{ROOT / "config/content_ratings.json"};config',str(ROOT/'scripts/desktop_app.py')]
+    command[-1:-1] = ['--add-data', f'{resource_manifest};.']
     subprocess.run(command,cwd=ROOT,check=True)
     package = output/'ErYouToolbox'
+    bundled = verify_resources(package/'_internal',require_manifest=True)
+    if bundled != resources:
+        raise RuntimeError('Packaged resources differ from pre-build inputs')
     versions = json.loads(subprocess.check_output([str(args.packaging_python),'-c',
         "import importlib.metadata as m,json,platform; print(json.dumps({'python':platform.python_version(),**{n:m.version(n) for n in ['pywebview','pythonnet','pyinstaller','httpx']}}))"],text=True))
-    manifest={'version':VERSION,'source_commit':git_sha,'working_tree_dirty':dirty,'platform':platform_info,'dependencies':versions}
+    manifest={'version':VERSION,'build_revision':'OB6-E2-F1','source_commit':git_sha,'working_tree_dirty':dirty,'platform':platform_info,'dependencies':versions,'resource_manifest':'_internal/'+MANIFEST}
     (package/'BUILD_INFO.json').write_text(json.dumps(manifest,indent=2),encoding='utf-8')
     (package/'README.txt').write_text(
         'ErYouToolbox '+VERSION+' Windows x64 portable candidate\n'
@@ -58,7 +68,7 @@ def main():
         relative=path.relative_to(package)
         if any(p in forbidden for p in relative.parts) or path.suffix.lower() in ('.db','.sqlite','.env','.har'):
             raise RuntimeError(f'Forbidden package entry: {relative}')
-    archive=output/f'ErYouToolbox-{VERSION}-win-x64.zip'
+    archive=output/f'ErYouToolbox-{VERSION}-OB6-E2-F1-win-x64.zip'
     with zipfile.ZipFile(archive,'x',compression=zipfile.ZIP_DEFLATED) as zipped:
         for path in sorted(package.rglob('*')):
             if path.is_file():zipped.write(path,Path('ErYouToolbox')/path.relative_to(package))

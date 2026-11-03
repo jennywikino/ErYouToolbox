@@ -17,9 +17,11 @@ import time
 from urllib.parse import unquote, urlsplit
 import uuid
 
-RESOURCES = Path(getattr(sys, '_MEIPASS', Path(__file__).resolve().parents[1]))
-sys.path.insert(0, str(RESOURCES / 'src'))
-sys.path.insert(0, str(RESOURCES / 'scripts'))
+if not getattr(sys, 'frozen', False):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
+from eryoutoolbox.app_resources import resource_root, executable_root, development_root, verify_resources
+
+RESOURCES = resource_root()
 from eryoutoolbox.database import initialize_database, SCHEMA_VERSION
 from react_api import ReadOnlyAPI, make_handler
 from backfill_content_ratings import instance_lock
@@ -42,8 +44,8 @@ class DesktopAPI(ReadOnlyAPI):
 
 
 def portable_root():
-    return (Path(sys.executable).resolve().parent if getattr(sys, 'frozen', False)
-            else RESOURCES / 'dist' / 'desktop-development')
+    return (executable_root() if getattr(sys, 'frozen', False)
+            else development_root() / 'dist' / 'desktop-development')
 
 
 def prepare_data(home, resources=RESOURCES):
@@ -155,10 +157,10 @@ def desktop_handler(api, port, static, closing):
     return Handler
 
 
-def create_server(root, database, static=RESOURCES/'frontend/dist'):
+def create_server(root, database, static=RESOURCES/'frontend/dist', *, resources=RESOURCES):
     if not (Path(static)/'index.html').is_file():
         raise ValueError('Missing production frontend. Build frontend before packaging.')
-    api = DesktopAPI(database, root/'config/games.json', runtime_root=root)
+    api = DesktopAPI(database, runtime_root=root, resources_root=resources)
     closing = threading.Event()
     # Binding port zero atomically reserves a free loopback port; no check/bind race.
     server = ThreadingHTTPServer(('127.0.0.1', 0), None)
@@ -197,9 +199,7 @@ def main():
             raise RuntimeError('This candidate supports Windows x64 only')
         if not webview2_available():
             raise RuntimeError('Microsoft Edge WebView2 Runtime is required. Install Evergreen Runtime from https://developer.microsoft.com/microsoft-edge/webview2/ . No download was performed.')
-        for relative in ('frontend/dist/index.html','config/games.json','config/content_ratings.json'):
-            if not (RESOURCES/relative).is_file():
-                raise RuntimeError(f'Missing application resource: {relative}. Extract the entire ZIP before starting.')
+        verify_resources(RESOURCES, require_manifest=bool(getattr(sys, 'frozen', False)))
         home=portable_root()
         # The lock is owned by this process and follows the portable directory.
         home.mkdir(parents=True,exist_ok=True)
@@ -241,7 +241,11 @@ def main():
                     from urllib.request import urlopen
                     with urlopen(url+'api/games', timeout=5) as response:
                         games=json.load(response)
+                    with urlopen(url+'api/content-ratings', timeout=5) as response:
+                        ratings=json.load(response)
                     report={'version':VERSION,'url':url,'games':len(games['games']),
+                            'rating_codes':[v['_sAlias'] for v in ratings['options']],
+                            'resources':str(RESOURCES),'userdata':str(root),
                             'page':window.evaluate_js("({title:document.title,text:document.body.innerText,root:!!document.querySelector('#root')})")}
                     (root/'logs/desktop-smoke.json').write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding='utf-8')
                 except Exception:
