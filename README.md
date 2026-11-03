@@ -1,3 +1,5 @@
+# 自己做着玩的（不要宣传和分发）
+
 # ErYouToolbox（二游工具盒）
 
 面向 GameBanana 公开 MOD 信息的本地整理工具，使用 Python、SQLite 与 React / TypeScript。数据保存在本机；不登录来源站点，不下载 MOD 文件，不提供转载授权。目标代码仓库：`jennywikino/ErYouToolbox`。
