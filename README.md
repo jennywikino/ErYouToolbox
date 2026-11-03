@@ -1,3 +1,5 @@
+# 自己做着玩的（不要宣传和分发）
+
 # 妙妙二玩箱（ErYouToolbox）
 
 ![妙妙二玩箱品牌图标](assets/branding/MiaomiaoEryouxiang_icon.png)
