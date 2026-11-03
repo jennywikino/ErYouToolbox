@@ -43,12 +43,14 @@ def valid_write_origin(headers, port):
 
 
 class ReadOnlyAPI:
-    def __init__(self, database: Path, games_path: Path = ROOT / "config" / "games.json"):
-        self.rating_config = json.loads((ROOT / "config" / "content_ratings.json").read_text(encoding="utf-8"))
+    def __init__(self, database: Path, games_path: Path = ROOT / "config" / "games.json", *, runtime_root: Path | None = None):
+        config_root = runtime_root if runtime_root is not None else ROOT
+        self.rating_config = json.loads((config_root / "config" / "content_ratings.json").read_text(encoding="utf-8"))
         self.database = database
         self.games = json.loads(games_path.read_text(encoding="utf-8"))["games"]
-        self.web_sync = WebSync(database, ROOT if database.resolve().is_relative_to(ROOT) else database.parent, self.games)
-        local_root=ROOT if database.resolve().is_relative_to(ROOT) else database.parent
+        local_root=runtime_root if runtime_root is not None else (ROOT if database.resolve().is_relative_to(ROOT) else database.parent)
+        self.runtime_root = local_root
+        self.web_sync = WebSync(database, local_root, self.games)
         self.auto_sync=AutoSync(local_root,database,self.games,state_dir=None if local_root==ROOT else local_root/'logs/auto_sync')
 
     @staticmethod
@@ -87,7 +89,8 @@ class ReadOnlyAPI:
                 return 200,result
             if path.path == '/api/auto-sync':
                 result=self.auto_sync.status()
-                result['task']=task_status(self.auto_sync.root,self.auto_sync.directory)
+                result['task']=( {'registered':False,'status':'unsupported','note':'Portable desktop: checks run only while the client is open.'}
+                                if getattr(self, 'desktop', False) else task_status(self.auto_sync.root,self.auto_sync.directory))
                 return 200,result
             if path.path == '/api/history-sync':
                 return 200,self.auto_sync.history().status()
@@ -111,7 +114,7 @@ class ReadOnlyAPI:
                 result['items']=[self.image_policy(i,allow_unknown) for i in result['items']]
                 return 200,result
             if path.path == '/api/author-updates':
-                latest=ROOT/'logs/author_updates/latest.json'
+                latest=self.runtime_root/'logs/author_updates/latest.json'
                 return 200, author_summary(json.loads(latest.read_text(encoding='utf-8'))) if latest.exists() else {'status':'not_checked'}
             if path.path == '/api/subscription':
                 source = query.get('source',[''])[0]
@@ -220,7 +223,7 @@ def make_handler(api: ReadOnlyAPI, port: int):
                     result=set_read(api.database,body['source'],body['item_id'],body['is_read'])
                 elif self.path == '/api/author-updates':
                     if body != {}:raise ValueError('Author check only supports dry-run')
-                    report,_=preview_authors(api.database,ROOT)
+                    report,_=preview_authors(api.database,api.runtime_root)
                     result=author_summary(report)
                 elif not isinstance(body,dict) or set(body) != {'source','author_id','followed'}:
                     raise ValueError('Invalid subscription request')

@@ -2,7 +2,15 @@
 
 面向 GameBanana 公开 MOD 信息的本地整理工具，使用 Python、SQLite 与 React / TypeScript。数据保存在本机；不登录来源站点，不下载 MOD 文件，不提供转载授权。目标代码仓库：`jennywikino/ErYouToolbox`。
 
-当前为开发候选版本，尚未发布稳定版。前端包版本仍为 0.3.0，历史本地标签 v0.4.0-rc1 仅代表旧源码基线。
+当前候选版本为 **0.5.0-rc1**，尚未发布稳定版。历史标签 v0.4.0-rc1 保持不变。
+
+## Windows 桌面候选版
+
+使用 pywebview + PyInstaller onedir，内嵌现有 React 生产资源与 Python 本地 API。完整解压后双击 `ErYouToolbox.exe`，无需安装 Python、Node 或启动 Vite；需要 Windows x64 和 Microsoft Edge WebView2 Evergreen Runtime。
+
+首次启动在 EXE 旁创建 `userdata/` 和**空作品库**，不会读取或迁移源码目录的个人数据库。更新时保留整个 userdata，不将其覆盖或上传。关闭客户端后不执行后台检查；Web 版计划任务与便携版数据独立，尚不支持便携版后台计划任务。
+
+源码构建、隔离环境及人工验收见 [桌面打包说明](docs/OB6_E2_DESKTOP_PACKAGE.md) 和 [Release 检查清单](docs/RELEASE_CHECKLIST.md)。本轮仅本地候选，不自动建立 Release 或标签。
 
 ## 已实现
 
@@ -18,7 +26,7 @@
 - 作者轮转、作者作品页、启动检查、渐进历史扫描和定向图片修复已有候选实现，仍需真实场景验收。
 - 2026-11-02 已通过独立设备完整备份及临时恢复验收；备份前须暂停全部写入，失效预览通过正常界面处理，勿直接改写状态文件绕过检查。
 - 跨电脑盘符变化、Windows 计划任务权限及完整恢复流程尚待实机确认。
-- 未提供桌面安装包、账号登录、MOD 下载或稳定版发布保证。
+- 仅提供待人工验收的桌面便携候选，不提供安装器、账号登录、MOD 下载或稳定版发布保证。
 - Python 依赖尚未全部固定版本，安装结果不是严格可复现构建。
 
 ## Windows 本地运行

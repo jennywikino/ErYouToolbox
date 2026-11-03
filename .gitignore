@@ -83,3 +83,7 @@ tmp*/
 *.zip
 *.7z
 *.har
+
+# Portable runtime is personal data, never source.
+userdata/
+!docs/OB6_E2_DESKTOP_PACKAGE.md

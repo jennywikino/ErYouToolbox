@@ -192,7 +192,7 @@ export default function App() {
       <div className="flex-1" />
       <a href="http://127.0.0.1:8501" target="_blank" rel="noopener noreferrer"
         className="rail-button" aria-label="打开 Streamlit 旧版界面" title="打开 Streamlit 旧版界面"><Icon name="external" /></a>
-      <span className="pb-6 text-[10px] text-slate-400">V0.4</span>
+      <span className="pb-6 text-[10px] text-slate-400">V0.5 RC1</span>
     </nav>
     <div className="app-body">
       <header className="topbar">
@@ -303,7 +303,7 @@ export default function App() {
             {categories.length === 0 && <p className="mt-5 text-xs text-slate-400">暂无已保存的分类信息</p>}
           </div>
           <div className="mt-auto border-t border-slate-100 pt-5 text-[11px] leading-6 text-slate-400">
-            <p>ErYouToolbox · V0.4</p><p>数据来自本机 SQLite</p><p>图片来源于作品原帖</p>
+            <p>ErYouToolbox · V0.5 RC1</p><p>数据来自本机 SQLite</p><p>图片来源于作品原帖</p>
           </div>
         </aside>
       </div>
