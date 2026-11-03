@@ -271,11 +271,17 @@ def main():
                             'resources':str(RESOURCES),'userdata':str(root),
                             'page':window.evaluate_js("({title:document.title,text:document.body.innerText,root:!!document.querySelector('#root')})")}
                     from System.Drawing import Icon
+                    from System.Drawing.Imaging import ImageFormat
+                    from System.IO import MemoryStream
                     def icon_pixels(icon):
                         bitmap=icon.ToBitmap()
+                        stream=MemoryStream()
                         try:
-                            return [[int(bitmap.GetPixel(x,y).ToArgb()) for x in range(bitmap.Width)] for y in range(bitmap.Height)]
-                        finally:bitmap.Dispose()
+                            # Lossless native serialization avoids thousands of
+                            # Python/.NET calls delaying smoke-mode shutdown.
+                            bitmap.Save(stream,ImageFormat.Png)
+                            return bytes(stream.ToArray())
+                        finally:stream.Dispose();bitmap.Dispose()
                     expected_icon=Icon(str(RESOURCES/'assets/branding/MiaomiaoEryouxiang_icon.ico'))
                     try:report['window_icon_matches_brand']=icon_pixels(window.native.Icon)==icon_pixels(expected_icon)
                     finally:expected_icon.Dispose()

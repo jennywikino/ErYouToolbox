@@ -22,9 +22,11 @@ pywebview WinForms 原生 `icon` 参数使用包内 ICO，显示在窗口标题�
 
 实际外部解压测试使用中文/空格临时目录、无项目 Python/Node PATH、无 Vite；验证原生标题、原生窗口图标像素与 ICO 一致、六游戏、只读资源缺失错误、已阅和关注持久化、自动同步设置保持、目录移动、重复启动锁、异常重启及端口释放。测试仅用隔离空库/模拟作品，不连接 GameBanana，不操作真实关注或 MOD。
 
-实际运行结果记录于忽略的 `logs/content_ratings/F5-*-isolation.json`；最终交付目录为 `dist/desktop-0.5.0-rc3-F5-delivery`，ZIP 及相邻 SHA-256 文件以最终构建为准。BUILD_INFO 记录真实源码提交、构建环境与图标校验结果。
+实际运行结果记录于忽略的 `logs/content_ratings/F5-*-isolation.json`；最终交付目录为 `dist/desktop-0.5.0-rc3-F5-delivery-final`，ZIP 及相邻 SHA-256 文件以最终构建为准。BUILD_INFO 记录真实源码提交、构建环境与图标校验结果。
 
 预构建外部独立解压已实际 PASS：窗口标题“妙妙二玩箱”，原生窗口图标与指定 ICO 像素一致；已阅/关注/自动化设置经重启和目录移动保持；异常退出恢复、资源缺失失败、端口释放通过。中文 EXE 的 Windows ProductName/FileDescription/OriginalFilename 已读取确认正确。最终干净提交包还需重复该测试，不以预构建结果替代。
+
+首次最终包复验在迁移后退出等待40秒超时；窗口图标的 Python/.NET 逐像素调用成本过高。仅将 smoke 验收图标比较改为原生无损 PNG 字节比较，避免大量跨运行时调用；正常窗口关闭逻辑未改。失败报告 F5-delivery-isolation.json 保留，修正包使用独立 delivery-final 目录和 F5-final-isolation.json 重新验收，不覆盖失败证据。
 
 Windows Explorer、任务栏、Alt+Tab 图标的人工视觉检查不能以自动化像素校验代替。若新 EXE 资源已正确但旧路径仍显示旧图标，先在全新解压目录查看、重新建立快捷方式；不强制清理系统缓存、不删除 userdata。物理 E/F 换盘和全新 Windows 环境仍需人工验收。
 
