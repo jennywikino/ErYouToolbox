@@ -23,6 +23,7 @@
 1. 前往 [Releases](https://github.com/jennywikino/ErYouToolbox/releases) 下载 Windows x64 ZIP，并**完整解压**。
 2. 双击 `妙妙二玩箱.exe`。无需单独安装 Python、Node.js 或 pnpm。
 3. 首次启动会在程序旁创建 `userdata/` 空数据库；联网刷新后获取 MOD 信息。
+4. 点击刷新，等待片刻即可
 
 **系统要求：** Windows 10/11 x64、当前受支持的 Microsoft Edge WebView2 Evergreen Runtime，以及 .NET Framework（建议4.8/4.8.1）。包内已含Python解释器DLL与依赖；Node/pnpm不参与运行。.NET 6/8等现代运行时不等于.NET Framework。
 
