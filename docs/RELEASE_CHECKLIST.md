@@ -1,6 +1,21 @@
 # Windows portable release candidate checklist
 
-Target: 0.5.0-rc2. A local candidate is not a formal release.
+Target: 0.5.0-rc3. A local candidate is not a formal release.
+
+## Current rc3 gate
+
+- [x] Rating UI/enrichment retired; legacy filters/preferences ignored; DB compatibility data retained.
+- [x] No content_ratings.json startup/build dependency; required games and frontend assets still verified.
+- [x] Compact refresh and settings dialog; explicit authorization before default3h apply; saved settings preserved.
+- [x] Source-created/updated90-day candidate filtering, bounded requests, incomplete coverage, no old data deletion.
+- [x] Earlier history is manual only, committed checkpoints/overlap preserved; no new system task.
+- [x] Cache whitelist/preview/hash/path/locks and no business-data deletion; actual isolated WebView2 DiskCache call passed.
+- [x] Source date fallback does not create update evidence; unknown metrics not zero; original licenses included by builder.
+- [ ] Final clean-source artifact, full regression and external extraction: record exact results in F4 handoff and BUILD_INFO.
+- [ ] User clean Windows, real E/F migration, three-hour automation, backed-up production small apply/history acceptance.
+- [ ] Owner license/distribution review and explicit Release/tag approval.
+
+## Historical rc2/rc1 checks (superseded where rc3 removes rating functionality)
 
 - [x] F3 directed Nahida study; independent implementation, no GPL code/assets copied.
 - [x] F3 first-use explicit consent, saved preferences preserved, periodic due hints while open; no new background service/task.

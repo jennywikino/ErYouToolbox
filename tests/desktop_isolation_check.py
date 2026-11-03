@@ -39,12 +39,14 @@ const delay=ms=>new Promise(r=>setTimeout(r,ms));
  await wait(`Array.from(document.querySelectorAll('button')).some(b=>b.textContent==='确认并保存设置')`);
  await run(`Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='确认并保存设置').click()`);
  await wait(`!document.body.innerText.includes('首次使用：选择自动化方式')`);
+ if(await run(`document.body.innerText.includes('内容分级')||document.body.innerText.includes('UNKNOWN')`))throw Error('Retired rating UI remains visible');
+ await run(`localStorage.setItem('showPreviewImages','0');localStorage.setItem('showSensitivePreviews','0');localStorage.setItem('showUnknownPreviews','0')`);
  const fs=require('fs'),path=require('path');
  for(const [width,height] of [[1920,1080],[1366,768]]){
   await command('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile:false});await delay(300);
   const layout=await run(`({width:innerWidth,scroll:document.documentElement.scrollWidth,columns:getComputedStyle(document.querySelector('.mod-grid')).gridTemplateColumns.split(/\s+/).length})`);
   if(layout.scroll>layout.width)throw Error('Horizontal overflow '+JSON.stringify(layout));
-  const shot=await command('Page.captureScreenshot',{format:'png'});fs.writeFileSync(path.join(evidence,`F3-${width}.png`),Buffer.from(shot.data,'base64'));
+  const shot=await command('Page.captureScreenshot',{format:'png'});fs.writeFileSync(path.join(evidence,`F4-${width}.png`),Buffer.from(shot.data,'base64'));
  }
  await wait(`!!document.querySelector('[data-mod-identity="gamebanana:Mod:900000001"] button')`);
  await run(`document.querySelector('[data-mod-identity="gamebanana:Mod:900000001"] button').click()`);
@@ -127,7 +129,12 @@ def close_error(child):
     @callback
     def content(handle,_):
         lines.append(text(handle));return True
-    user.EnumChildWindows(found[0],content,0)
+    # The HWND may appear before MessageBox finishes creating its Static text.
+    # Wait for actual error text instead of closing a half-created dialog.
+    for _ in range(60):
+        lines.clear();user.EnumChildWindows(found[0],content,0)
+        if any(line.strip() and line.strip() not in ('确定','OK','&OK') for line in lines):break
+        time.sleep(.05)
     user.PostMessageW(found[0],0x0010,0,0)
     child.wait(timeout=10)
     if child.returncode==0:raise RuntimeError('Error startup reported success')
@@ -152,7 +159,7 @@ def main():
         # Missing resources must fail even though the source directory still has all configs.
         manifest=json.loads((exe.parent/'_internal/RESOURCE_MANIFEST.json').read_text(encoding='utf-8'))
         javascript=next(n for n in manifest['files'] if n.endswith('.js'))
-        for relative in ('config/content_ratings.json','config/games.json','frontend/dist/index.html',javascript):
+        for relative in ('config/games.json','frontend/dist/index.html',javascript):
             resource=exe.parent/'_internal'/relative
             original=resource.read_bytes();resource.unlink()
             try:
@@ -165,15 +172,19 @@ def main():
         child,_,log,offset=start(exe,cwd)
         port=ready(child,log,offset)
         report['checks']['games']=len(request(port,'/api/games')['games'])
-        report['checks']['ratings']=len(request(port,'/api/content-ratings')['options'])
-        request(port,'/api/rating-enrichment',{'action':'run','apply':False,'limit':20})
         for _ in range(100):
-            state=request(port,'/api/rating-enrichment')
-            if not state['running']:break
+            cache=request(port,'/api/cache')
+            if next(c for c in cache['categories'] if c['id']=='webview')['allowed']:break
             time.sleep(.1)
-        if state['status']!='success' or state['requests']!=0:raise RuntimeError('Packaged empty-queue rating dry-run failed')
-        report['checks']['packaged_rating_dry_run']={'status':state['status'],'requests':state['requests'],'total':state['inventory']['total']}
-        if (exe.parent/'userdata/logs/content_ratings/checkpoint_all.json').exists():raise RuntimeError('Dry-run advanced rating checkpoint')
+        plan=request(port,'/api/cache',{'action':'preview','categories':['memory','webview']})
+        cleared=request(port,'/api/cache',{'action':'clear','token':plan['token']})
+        if cleared['status']!='success':raise RuntimeError('Official WebView2 cache clear failed: '+str(cleared))
+        report['checks']['official_disk_cache_clear']=True
+        connection=http.client.HTTPConnection('127.0.0.1',port,timeout=5)
+        connection.request('GET','/api/rating-enrichment');retired=connection.getresponse();retired.read();connection.close()
+        if retired.status!=410:raise RuntimeError('Rating job still accessible')
+        report['checks']['rating_job_retired']=True
+        if (exe.parent/'userdata/logs/content_ratings/checkpoint_all.json').exists():raise RuntimeError('Retired feature created rating checkpoint')
         stopped(child,port)
         # Deny writes only on this test-owned userdata directory; restore ACL immediately.
         data=exe.parent/'userdata'

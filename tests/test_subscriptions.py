@@ -46,7 +46,7 @@ class SubscriptionTests(unittest.TestCase):
     def test_filters_and_pagination(self):
         set_follow(self.db,'gamebanana',7,True)
         self.assertEqual(query_mods(self.db,subscriptions_only=True,game_id=19567,rating_codes=['pn'])['total_count'],1)
-        self.assertEqual(query_mods(self.db,subscriptions_only=True,rating_codes=['sc'])['total_count'],0)
+        self.assertEqual(query_mods(self.db,subscriptions_only=True,rating_codes=['sc'])['total_count'],2)
         a=query_mods(self.db,subscriptions_only=True,limit=1)['items']
         b=query_mods(self.db,subscriptions_only=True,limit=1,offset=1)['items']
         self.assertNotEqual(a[0]['item_id'],b[0]['item_id'])

@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import {listingPreferences,resizedPage,cardPreviewUrl} from './policy.ts'
+import {listingPreferences,resizedPage,cardPreviewUrl,sourceUpdateDate,dateLabel} from './policy.ts'
 import {createStartupRequest,requestDueCheck} from './autoStartup.ts'
 
 test('periodic due checks preserve off, future, running, pending and saved mode',async()=>{
@@ -35,26 +35,15 @@ test('startup errors remain visible without automatic retry loops', async () => 
   assert.equal(requests,1)
 })
 
-test('unknown images require a separate explicit preference', () => {
-  assert.equal(canShowImages('UNKNOWN', false), false)
-  assert.equal(canShowImages('UNKNOWN', true), false)
-  assert.equal(canShowImages('UNKNOWN', true,['UNKNOWN'],false,true), true)
-  assert.equal(canShowImages('UNKNOWN',true,['st','rp']),false)
-  assert.equal(canShowImages('UNKNOWN',true,['rp'],false,true),true)
-  assert.equal(canShowImages('SAFE', false), false)
+test('retired content policies and legacy hidden preferences no longer hide images',()=>{
+ for(const rating of ['UNKNOWN','ADULT','NSFW','SAFE'])for(const code of ['UNKNOWN','-','pn','nu','sc','rp'])
+  assert.equal(canShowImages(rating,false,[code],false,false),true)
 })
-test('sensitive source codes and manual adult status stay hidden until explicitly allowed', () => {
-  for (const value of ['ADULT', 'NSFW']) {
-    assert.equal(canShowImages(value, true,['-']), false)
-    assert.equal(canShowImages(value, true,['-'],true), true)
-  }
-  for(const code of ['pn','nu','sc','ft','bg','iv']) {
-    assert.equal(canShowImages('UNKNOWN',true,[code]),false)
-    assert.equal(canShowImages('UNKNOWN',true,[code],true),true)
-  }
-  assert.equal(canShowImages('UNKNOWN',true,['-']),true) // Source Unrated, not a SAFE assertion.
-  assert.equal(canShowImages('UNKNOWN',true,['cp']),true)
+test('legacy explicit image preferences remain harmless compatibility arguments',()=>{
+ assert.equal(canShowImages('ADULT',true,['pn'],true,true),true)
+ assert.equal(safeUrl('javascript:alert(1)'),null)
 })
+
 test('gallery index respects first, last, and empty image boundaries', () => {
   assert.equal(imageIndex(-1, 6), 0)
   assert.equal(imageIndex(6, 6), 5)
@@ -72,7 +61,10 @@ test('source release, source update and local discovery use separate timestamps'
   assert.deepEqual(discoveryTime(mod, 'created'), {label: '来源发布', value: '2020-01-01'})
   assert.deepEqual(discoveryTime(mod, 'updated'), {label: '来源更新', value: '2026-10-28'})
   assert.deepEqual(discoveryTime(mod, 'first_seen'), {label: '本地发现', value: '2026-10-29'})
-  assert.equal(discoveryTime({created_at: '2026-10-29'}, 'updated').value, undefined)
+  assert.equal(discoveryTime({created_at: '2026-10-29'}, 'updated').value, '2026-10-29')
+  assert.deepEqual(sourceUpdateDate({created_at:'2026-10-29',updated_at:'invalid'}),{value:'2026-10-29',hasIndependentUpdate:false})
+  assert.deepEqual(sourceUpdateDate({}),{value:null,hasIndependentUpdate:false})
+  assert.equal(dateLabel(null),'暂无来源数据')
 })
 
 test('sync time and status never turn failure or missing data into success', () => {

@@ -162,3 +162,19 @@ button, a { transition: background-color .16s, border-color .16s, box-shadow .16
 .source-files div { border-bottom:1px solid #f0edf5; padding:10px 0; }
 @media(prefers-reduced-motion:no-preference) { .card-skeleton { animation:loading-pulse 1.6s ease-in-out infinite alternate; } }
 @keyframes loading-pulse { to { opacity:.55; } }
+
+/* rc3 keeps the five-column grid unchanged; operations are compact controls. */
+.sync-inline { font-size:12px; color:#81758f; }
+.sync-inline-actions { display:flex; align-items:center; flex-wrap:wrap; gap:8px; }
+.sync-inline-actions .small-button { min-height:32px; font-size:12px; }
+.sync-inline-actions .refresh-button { color:#fff; background:#8764b8; border-color:#8764b8; }
+.sync-inline-result { font-size:11px; margin:7px 0 0; line-height:1.7; }
+.pending-preview { padding:5px 9px; border-radius:6px; color:#9e691a; background:#fff3dd; }
+.settings-dialog { width:min(820px,92vw); max-height:85vh; overflow:auto; border:1px solid #e7e0ef; border-radius:14px; padding:22px; color:#6b6079; font-size:13px; box-shadow:0 20px 80px #30203f33; }
+.settings-dialog:not([open]) { display:none; }
+.settings-dialog::backdrop { background:#21172f55; }
+.settings-heading { display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:16px; color:#4f405f; }
+.settings-heading h2 { font-weight:600; font-size:17px; }
+.cache-category { display:flex; gap:12px; padding:12px 0; border-bottom:1px solid #f0ebf5; }
+.cache-category small { display:block; font-size:11px; color:#94899f; line-height:1.7; }
+.cache-category input { margin-top:4px; }

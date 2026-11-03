@@ -21,7 +21,7 @@ function Group({game,sort,search,ratings,allowUnknown,onOpen,scope,days,maxPages
       .catch(e=>{if(e.name!=='AbortError')setError(e.message)}).finally(()=>{if(!c.signal.aborted)setBusy(false)})
     return()=>c.abort()
   },[loaded,page,sort,allowUnknown,revision,game.game_id,scope,days,maxPages,paused,imagePolicy])
-  const items=data?.items.filter(m=>(!search||[m.title,m.author_name,String(m.item_id)].some(s=>s?.toLowerCase().includes(search.toLowerCase())))&&(ratings===null||m.source_ratings?.codes.some(code=>ratings.includes(code))))||[]
+  const items=data?.items.filter(m=>(!search||[m.title,m.author_name,String(m.item_id)].some(s=>s?.toLowerCase().includes(search.toLowerCase()))))||[]
   return <section className="mb-8" data-ranking-game={game.game_id} data-ranking-ready={!busy&&!!(data||error)}>
     <h2 className="mb-3 text-lg font-semibold">{game.name}</h2>
     {!loaded?<button className="small-button" onClick={()=>setLoaded(true)}>加载该游戏榜单</button>:<>
@@ -49,7 +49,7 @@ export default function PopularPanel(props:{games:Game[];game:string;search:stri
     <h1 className="mb-3 text-2xl font-semibold">热门 MOD</h1>
     <div className="mb-4 flex gap-3"><button className="small-button" aria-pressed={scope==='recent'} onClick={()=>setScope('recent')}>近期发布</button><button className="small-button" aria-pressed={scope==='history'} onClick={()=>setScope('history')}>历史累计</button></div>
     {scope==='recent'&&<div className="mb-4 flex gap-4 text-sm"><label>发布时间窗口 <select aria-label="近期时间窗口" value={days} onChange={e=>setDays(Number(e.target.value))}>{[7,30,90].map(n=><option key={n} value={n}>{n} 天</option>)}</select></label><label>扫描上限 <select aria-label="近期扫描页数上限" value={maxPages} onChange={e=>setMaxPages(Number(e.target.value))}>{[1,2,3,4,5].map(n=><option key={n} value={n}>{n} 页</option>)}</select></label></div>}
-    <p className="mb-4 text-xs leading-6 text-slate-500">{scope==='recent'?'近期发布作品的累计热度排序，候选来自 Generic_Newest 有界扫描；不是官方近期热度增长榜。每次扫描每页最多 50 条，未观察到时间边界时 coverage=incomplete。':'GameBanana 历史累计来源榜单，保留来源排名。'} 缓存 30 分钟；搜索与分级只筛当前展示页。缺少具体分级标签时显示 UNKNOWN；无可靠下载量时显示暂无数据。</p>
+    <p className="mb-4 text-xs leading-6 text-slate-500">{scope==='recent'?'近期发布作品的累计热度排序，候选来自 Generic_Newest 有界扫描；不是官方近期热度增长榜。每次扫描每页最多 50 条，未观察到时间边界时 coverage=incomplete。':'GameBanana 历史累计来源榜单，保留来源排名。'} 缓存 30 分钟；搜索只筛当前展示页。无可靠下载量时显示暂无数据。</p>
     <select className="mb-5 rounded border p-2 text-sm" aria-label="热门排序" value={sort} onChange={e=>setSort(e.target.value)}><option value="likes">最多喜欢</option><option value="views">最多浏览</option><option value="downloads">最多下载</option></select>
     {!props.game&&<p className="mb-5 text-xs text-slate-500">全部游戏按游戏分组，点击加载；不合成跨游戏排名。</p>}
     {props.games.filter(g=>!props.game||String(g.game_id)===props.game).map(g=><Group key={`${g.game_id}:${sort}:${props.game}:${scope}:${days}:${maxPages}`} {...props} game={g} group={props.view.groups[g.game_id]??{loaded:!!props.game,page:1}} onGroupChange={value=>props.onViewChange({...props.view,groups:{...props.view.groups,[g.game_id]:value}})} sort={sort} scope={scope} days={days} maxPages={maxPages}/>)}

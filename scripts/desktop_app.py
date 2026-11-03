@@ -26,7 +26,7 @@ from eryoutoolbox.database import initialize_database, SCHEMA_VERSION
 from react_api import ReadOnlyAPI, make_handler
 from backfill_content_ratings import instance_lock
 
-VERSION = '0.5.0-rc2'
+VERSION = '0.5.0-rc3'
 
 
 class DesktopAPI(ReadOnlyAPI):
@@ -83,7 +83,7 @@ def prepare_data(home, resources=RESOURCES):
         marker.write_text(json.dumps({'format':'eryoutoolbox-portable-v1', 'created_version':VERSION}), encoding='utf-8')
     config = root / 'config'
     config.mkdir(exist_ok=True)
-    for name in ('games.json', 'content_ratings.json'):
+    for name in ('games.json',):
         target = config / name
         if not target.exists():
             with target.open('xb') as stream:
@@ -218,12 +218,33 @@ def main():
             url=f'http://127.0.0.1:{server.server_port}/'
             logging.info('Desktop %s ready: %s database=%s',VERSION,url,database)
             window=webview.create_window('二游工具盒 ErYouToolbox',url,width=1440,height=960,min_size=(960,640))
+            def attach_cache():
+                # Only Microsoft's DiskCache kind, never AllProfile/DOM storage.
+                # No filesystem deletion of an active browser profile.
+                def clear_disk_cache():
+                    from System import Action
+                    from Microsoft.Web.WebView2.Core import CoreWebView2BrowsingDataKinds
+                    done=threading.Event();errors=[]
+                    def invoke():
+                        try:
+                            task=window.native.browser.webview.CoreWebView2.Profile.ClearBrowsingDataAsync(CoreWebView2BrowsingDataKinds.DiskCache)
+                            def finished():
+                                try:task.GetAwaiter().GetResult()
+                                except Exception as exc:errors.append(str(exc))
+                                finally:done.set()
+                            task.GetAwaiter().OnCompleted(Action(finished))
+                        except Exception as exc:errors.append(str(exc));done.set()
+                    window.native.BeginInvoke(Action(invoke))
+                    if not done.wait(15):raise RuntimeError('WebView2 cache clearing timed out; no folder was forcibly deleted')
+                    if errors:raise RuntimeError('; '.join(errors))
+                api.cache.webview_clear=clear_disk_cache
+            window.events.loaded += attach_cache
             def before_close():
                 # Reject new writes, then wait for known workers without interrupting transactions.
                 with server.lifecycle_lock:
                     closing.set()
                     try:
-                        if api.web_sync.worker_active or api.auto_sync.running.locked() or api.rating_enrichment.running.locked():
+                        if api.web_sync.worker_active or api.auto_sync.running.locked():
                             raise RuntimeError('A sync is running')
                         with instance_lock(root/'logs/content_ratings/instance.lock'):
                             pass
@@ -241,10 +262,8 @@ def main():
                     from urllib.request import urlopen
                     with urlopen(url+'api/games', timeout=5) as response:
                         games=json.load(response)
-                    with urlopen(url+'api/content-ratings', timeout=5) as response:
-                        ratings=json.load(response)
                     report={'version':VERSION,'url':url,'games':len(games['games']),
-                            'rating_codes':[v['_sAlias'] for v in ratings['options']],
+                            'content_ratings':'retired',
                             'resources':str(RESOURCES),'userdata':str(root),
                             'page':window.evaluate_js("({title:document.title,text:document.body.innerText,root:!!document.querySelector('#root')})")}
                     (root/'logs/desktop-smoke.json').write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding='utf-8')
@@ -253,12 +272,16 @@ def main():
                 finally:
                     window.destroy()
             try:
-                webview.start(smoke if args.smoke_seconds else None,gui='edgechromium',private_mode=True)
+                # Portable browser storage is explicitly scoped. The native API
+                # clears DiskCache only; pywebview must not recursively remove it.
+                browser_storage=root/'cache/webview'
+                from eryoutoolbox.cache_management import safe_child
+                safe_child(root,browser_storage)
+                webview.start(smoke if args.smoke_seconds else None,gui='edgechromium',private_mode=False,storage_path=str(browser_storage))
             finally:
                 closing.set()
                 api.web_sync.cancel.set()
-                api.rating_enrichment.cancel.set()
-                while api.web_sync.worker_active or api.auto_sync.running.locked() or api.rating_enrichment.running.locked():
+                while api.web_sync.worker_active or api.auto_sync.running.locked():
                     time.sleep(0.2)
                 server.shutdown()
                 server.server_close()

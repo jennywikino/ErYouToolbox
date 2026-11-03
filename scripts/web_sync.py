@@ -16,6 +16,16 @@ from backfill_content_ratings import instance_lock
 FORMAT='eryoutoolbox-web-sync-v1'
 MAX_PAGES=10
 
+
+def recent_window(record, captured_at, days=90):
+    """Local discovery time and modified_at never establish source activity."""
+    from datetime import timedelta
+    cutoff=parse_utc(captured_at)-timedelta(days=days)
+    dates=[parse_utc(record.get(key)) for key in ('created_at','updated_at')]
+    dates=[value for value in dates if value is not None]
+    if not dates:return 'missing_dates'
+    return 'in_window' if any(cutoff<=value<=parse_utc(captured_at) for value in dates) else 'out_of_window'
+
 def utc():
     return time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime())
 
@@ -142,7 +152,7 @@ class WebSync:
                 if not selected or len(selected)>6:raise ValueError('Choose supported games (at most six)')
                 self.candidate=None;self.cancel.clear();self.task_id=secrets.token_hex(16)
                 self.state={'status':'checking','game_id':gid,'completed':0,'games':[],'max_pages':budget}
-                target,args=self.check_games,(selected,10 if len(selected)>1 else 20,budget,action=='resume')
+                target,args=self.check_games,(selected,10 if len(selected)>1 else 20,budget,action=='resume',90)
             elif action=='confirm' and set(body)=={'action','token','game'}:
                 if not self.candidate or self.state['status']!='waiting' or body['token']!=self.state['token'] or body['game']!=self.state['game_id']:raise ValueError('Preview identity mismatch; check again')
                 if time.time()-self.candidate['created']>600:raise ValueError('Preview expired; check again')
@@ -166,7 +176,7 @@ class WebSync:
 
     def check(self,game):self.check_games([game],20)
 
-    def check_games(self,games,per_page=10,max_pages=3,resume=False):
+    def check_games(self,games,per_page=10,max_pages=3,resume=False,window_days=None):
         if not 1<=len(games)<=6 or type(max_pages) is not int or not 1<=max_pages<=MAX_PAGES:raise ValueError('Bounded games/pages required')
         if per_page not in (10,20):raise ValueError('Invalid web page size')
         checkpoints=self.committed();summaries=[];snapshots=[];identities={};stopped=False
@@ -180,6 +190,8 @@ class WebSync:
                 summary={'game_id':game['game_id'],'name':game['name'],'status':'skipped','scanned':0,'requests':0,
                          'failures':[],'pages':[],'planned_pages':plan,'coverage':'incomplete','checkpoint':cp,
                          'frontier':frontier,'per_page':per_page,'known_ids':[],'newest_known':{},'page_duplicates':0,'scan_status':'awaiting_resume'}
+                summary.update(window_days=window_days,out_of_window=0,missing_dates=0,
+                               pending_date_ids=list(cp.get('pending_date_ids',[])))
                 summaries.append(summary)
                 if stopped or self.cancel.is_set():
                     summary['failures']=[{'reason':'Not requested after stop signal'}];continue
@@ -188,7 +200,7 @@ class WebSync:
                     with self.mutex:self.state={**self.state,'current_game':game['name'],'current_page':page,'completed':len(summaries)-1,'games':summaries}
                     result=None
                     try:
-                        result=collect_game(client,game,max_pages=1,per_page=per_page,sort='Generic_NewAndUpdated',start_page=page)
+                        result=collect_game(client,game,max_pages=1,per_page=per_page,days=window_days or 30,sort='Generic_NewAndUpdated',start_page=page,max_requests=2,max_rate_wait=0)
                         summary['requests']+=result['request_count']
                         fetched=sum(p.get('returned_count',0) for p in result.get('pagination_pages',[])) if result.get('pagination_pages') else result['actual_record_count']
                         summary['scanned']+=fetched
@@ -204,7 +216,15 @@ class WebSync:
                             if (key[0]!='gamebanana' or key[1]!='Mod' or type(key[2]) is not int or key[2]<=0 or record.get('game_id')!=game['game_id'] or key in identities and identities[key]!=game['game_id']):raise ValueError('Source identity mismatch')
                         for r in result['records']:identities[(r['source'],r['item_type'],r['item_id'])]=game['game_id']
                         summary['page_duplicates']+=max(0,result['actual_record_count']-len(result['records']))
-                        snapshots.append(({'captured_at':parse_utc(result['collected_at'])},result['records']))
+                        selected=[]
+                        for r in result['records']:
+                            scope=recent_window(r,result['collected_at'],window_days) if window_days else 'in_window'
+                            if scope=='missing_dates':
+                                if r['item_id'] not in summary['pending_date_ids']:summary['pending_date_ids'].append(r['item_id'])
+                            elif r['item_id'] in summary['pending_date_ids']:summary['pending_date_ids'].remove(r['item_id'])
+                            if scope=='in_window':selected.append(r)
+                            else:summary[scope]+=1
+                        snapshots.append(({'captured_at':parse_utc(result['collected_at'])},selected))
                         summary['pages'].append(page)
                         summary['known_ids']=list(dict.fromkeys(summary['known_ids']+[r['item_id'] for r in result['records']]))[:200]
                         for field in ('created_at','updated_at'):
@@ -247,6 +267,10 @@ class WebSync:
             for s in summaries:
                 s['report']=import_samples(c,grouped[s['game_id']],dry_run=True)
                 s['statistics']=classify(s['report'],s['scanned'],s['page_duplicates'])
+                s['statistics'].update(out_of_window=s.get('out_of_window',0),missing_dates=s.get('missing_dates',0))
+                excluded=s.get('out_of_window',0)+s.get('missing_dates',0)
+                s['statistics']['classified']+=excluded
+                s['statistics']['unclassified']=max(0,s['statistics']['unclassified']-excluded)
                 s['missing_update_evidence']=sum(not r.get('updated_at') for _,rows in grouped[s['game_id']] for r in rows)
         finally:c.close()
         records=[r for _,rows in snapshots for r in rows]
@@ -261,6 +285,11 @@ class WebSync:
                         'requests':result['request_count'],'coverage':'incomplete','report':report,'failures':errors,
                         'statistics':classify(report,result['actual_record_count'],sum(s['page_duplicates'] for s in summaries)),
                         'scan_status':'rate_limited' if any(s['scan_status']=='rate_limited' for s in summaries) else 'awaiting_resume' if errors else 'complete_check' if all(s['scan_status']=='complete_check' for s in summaries) else 'incomplete'}
+            self.state['window_days']=next((s.get('window_days') for s in summaries),None)
+            self.state['statistics'].update(out_of_window=sum(s.get('out_of_window',0) for s in summaries),missing_dates=sum(s.get('missing_dates',0) for s in summaries))
+            excluded=self.state['statistics']['out_of_window']+self.state['statistics']['missing_dates']
+            self.state['statistics']['classified']+=excluded
+            self.state['statistics']['unclassified']=max(0,self.state['statistics']['unclassified']-excluded)
         self.save()
 
     def apply(self,only_source_changes=False,write_guard=None):
@@ -277,6 +306,7 @@ class WebSync:
             backup=self.database.parent/'backups'/('web_sync_'+secrets.token_hex(12)+'.db');backup_database(self.database,backup)
         result=candidate['result']
         checkpoints={str(s['game_id']):{'frontier':max(s['frontier'],s['checkpoint'].get('frontier',0) if s['checkpoint'].get('per_page')==s['per_page'] else 0),'per_page':s['per_page'],
+                     'pending_date_ids':s.get('pending_date_ids',[]),
                      'last_success_check_at':s['checked_at'] if s['status']=='success' else s['checkpoint'].get('last_success_check_at'),
                      'last_successful_page_at':s['checked_at'],
                      'pages':s['pages'],'known_ids':s['known_ids'],'newest_known':s['newest_known'],'coverage':s['coverage'],'failures':s['failures'],

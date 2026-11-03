@@ -30,7 +30,7 @@ class AutomaticSyncTests(unittest.TestCase):
   try:return c.execute('SELECT COUNT(*) FROM '+table).fetchone()[0]
   finally:c.close()
  def source(self,client,game,**kwargs):
-  return {'records':[{'source':'gamebanana','item_type':'Mod','item_id':game['game_id'],'game_id':game['game_id'],'title':'New','author_id':7,'updated_at':'2026-01-01T00:00:00Z'}],
+  return {'records':[{'source':'gamebanana','item_type':'Mod','item_id':game['game_id'],'game_id':game['game_id'],'title':'New','author_id':7,'updated_at':'2026-10-01T00:00:00Z'}],
           'actual_record_count':1,'request_count':1,'collected_at':'2026-10-30T00:00:00Z','failure_reasons':[]}
  def run_auto(self,**kwargs):
   with patch('web_sync.collect_game',side_effect=self.source),patch('web_sync.time.sleep'):

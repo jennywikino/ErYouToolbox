@@ -39,7 +39,7 @@ class ResourceTests(unittest.TestCase):
         self.assertEqual(verify_resources(self.root,require_manifest=True),self.manifest)
 
     def test_each_required_resource_missing_is_fatal(self):
-        for name in ('config/games.json','config/content_ratings.json','frontend/dist/index.html','frontend/dist/assets/main.js','frontend/dist/assets/main.css',MANIFEST):
+        for name in ('config/games.json','frontend/dist/index.html','frontend/dist/assets/main.js','frontend/dist/assets/main.css',MANIFEST):
             path=self.root/name
             original=path.read_bytes();path.unlink()
             try:
@@ -47,11 +47,12 @@ class ResourceTests(unittest.TestCase):
                 self.assertIn(str(path),str(error.exception))
             finally:path.write_bytes(original)
 
-    def test_bad_ratings_cannot_silently_become_empty(self):
+    def test_retired_rating_resource_is_not_required_or_interpreted(self):
         path=self.root/'config/content_ratings.json'
-        for value in ({'options':[]},{'options':[{'_sAlias':'-'}]}):
-            path.write_text(json.dumps(value))
-            with self.assertRaisesRegex(ValueError,'ratings'):verify_resources(self.root)
+        for value in ('invalid JSON','{"options":[]}'):
+            path.write_text(value)
+            self.assertEqual(verify_resources(self.root),self.manifest)
+        path.unlink();self.assertEqual(verify_resources(self.root),self.manifest)
 
     def test_changed_asset_fails_hash_check(self):
         (self.root/'frontend/dist/assets/main.js').write_text('changed')
@@ -67,7 +68,7 @@ class ResourceTests(unittest.TestCase):
             with patch.object(sys,'frozen',True,create=True),patch.object(sys,'_MEIPASS',str(self.root),create=True):
                 api=DesktopAPI(db,runtime_root=root)
                 self.assertEqual(len(api.games),6)
-                self.assertIn('UNKNOWN',[r['_sAlias'] for r in api.rating_config['options']])
+                self.assertEqual(api.get('/api/content-ratings')[0],410)
         finally:os.chdir(old)
 
     def test_resource_folder_move_keeps_manifest_valid(self):

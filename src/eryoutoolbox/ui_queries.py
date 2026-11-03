@@ -13,7 +13,7 @@ from .content_ratings import source_ratings, rating_matches
 SORT_COLUMNS = {
     "first_seen": "m.first_seen_at",
     "created": "m.created_at",
-    "updated": "m.updated_at",
+    "updated": "CASE WHEN julianday(m.updated_at) IS NOT NULL THEN m.updated_at ELSE m.created_at END",
 }
 
 
@@ -193,14 +193,12 @@ def query_mods(database_path: str | Path, *, game_id: int | None = None,
         where.append("m.preview_urls_json IS NOT NULL AND trim(m.preview_urls_json) NOT IN ('', '[]')")
     if require_updated:
         where.append('julianday(m.updated_at) IS NOT NULL')
-    if rating_codes is not None:
-        where.append("rating_matches(m.raw_metadata_json, ?) = 1")
-        parameters.append(json.dumps(rating_codes))
+    # Retired rating predicates are accepted only for old callers/snapshots.
     clause = " WHERE " + " AND ".join(where) if where else ""
     selected = (
         "m.source, m.item_type, m.item_id, m.game_id, m.game_name, m.title, "
         "m.original_url, m.author_id, m.author_name, m.author_url, m.created_at, "
-        "m.updated_at, m.version, m.content_rating_status, m.preview_urls_json, "
+        "m.updated_at, m.modified_at, m.version, m.content_rating_status, m.preview_urls_json, "
         "m.raw_metadata_json, m.first_seen_at, us.is_read, us.is_favorite, us.is_ignored, us.workflow_status, "
         "(SELECT MAX(e.detected_at) FROM mod_events e WHERE e.source=m.source AND e.item_type=m.item_type "
         "AND e.item_id=m.item_id AND e.event_type='source_updated') AS source_update_detected_at"
@@ -281,7 +279,7 @@ def query_mod_detail(database_path: str | Path, *, source: str,
     selected = (
         "m.source, m.item_type, m.item_id, m.game_id, m.game_name, m.title, "
         "m.original_url, m.author_id, m.author_name, m.author_url, m.created_at, "
-        "m.updated_at, m.version, m.category, m.subcategory, m.tags_json, "
+        "m.updated_at, m.modified_at, m.version, m.category, m.subcategory, m.tags_json, "
         "m.content_rating_status, m.preview_urls_json, m.raw_metadata_json"
     )
     connection = readonly_connection(database_path)

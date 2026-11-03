@@ -7,10 +7,9 @@ import Icon from './Icons'
 import PreviewCard from './PreviewCard'
 import ModDetail from './ModDetail'
 import AuthorUpdateCheck from './AuthorUpdateCheck'
-import RatingEnrichment from './RatingEnrichment'
 import CategorySidebar from './CategorySidebar'
 import PopularPanel, {type PopularView} from './PopularPanel'
-import { syncTimeLabel, syncStatusLabel, restoreScrollTop, restorePopularView, validBrowseSnapshot, listingPreferences, resizedPage, imagePreferenceQuery, imagePreferences } from './policy'
+import { syncTimeLabel, syncStatusLabel, restoreScrollTop, restorePopularView, validBrowseSnapshot, listingPreferences, resizedPage, imagePreferenceQuery } from './policy'
 
 const LISTING_KEY='eryouListing'
 function savedListing(){try{return listingPreferences(JSON.parse(localStorage.getItem(LISTING_KEY)||'null'))}catch{return listingPreferences(null)}}
@@ -48,11 +47,8 @@ export default function App() {
   const gridRef=useRef<HTMLDivElement>(null)
   const [firstRow,setFirstRow]=useState(3)
   const [withImages, setWithImages] = useState(false)
-  const [allowUnknown, setAllowUnknown] = useState(() => localStorage.getItem("showPreviewImages") !== "0")
-  const [extraImages,setExtraImages]=useState(imagePreferences)
-  const [ratingsOpen,setRatingsOpen]=useState(false)
-  const [ratingOptions, setRatingOptions] = useState<{_sAlias: string; _sTitle: string}[]>([])
-  const [ratings, setRatings] = useState<string[] | null>(null)
+  const allowUnknown = true
+  const ratings: string[] | null = null
   const [data, setData] = useState<ModPage | null>(null)
   const [error, setError] = useState('')
   const [configError, setConfigError] = useState('')
@@ -70,7 +66,7 @@ export default function App() {
   const viewRef=useRef(currentView);viewRef.current=currentView
   type SavedView=typeof currentView & {scrollY:number;anchor:string;anchorTop:number;anchorGame?:number}
   const pendingRestore=useRef<SavedView|null>(null)
-  const applyView=(v:SavedView)=>{setCategory(v.category||'');setSubcategory(v.subcategory||'');setAuthor(v.author||null);setFeed(v.feed);setGame(v.game);setDraft(v.draft);setSearch(v.search);setSort(v.sort);setRatings(v.ratings);setReadFilter(v.readFilter);setPage(v.page);setPageSize(v.pageSize);setViewMode(v.viewMode);setWithImages(v.withImages);setAllowUnknown(v.allowUnknown);setPopular(v.popular)}
+  const applyView=(v:SavedView)=>{setCategory(v.category||'');setSubcategory(v.subcategory||'');setAuthor(v.author||null);setFeed(v.feed);setGame(v.game);setDraft(v.draft);setSearch(v.search);setSort(v.sort);setReadFilter(v.readFilter);setPage(v.page);setPageSize(v.pageSize);setViewMode(v.viewMode);setWithImages(v.withImages);setPopular(v.popular)}
   const resetList=(leaveAuthor=false)=>{pendingRestore.current=null;history.replaceState({...history.state,eryouView:null},'');window.location.hash=!leaveAuthor&&viewRef.current.author?`#/author/${encodeURIComponent(viewRef.current.author.source)}/${viewRef.current.author.author_id}`:'';window.scrollTo({top:0,behavior:'instant'})}
   const returnToList=()=>{if(history.state?.eryouView){history.back()}else resetList()}
   const refreshLibrary=()=>{
@@ -103,14 +99,11 @@ export default function App() {
     const controller = new AbortController()
     read<{ games: Game[] }>('/api/games', controller.signal).then(value => setGames(value.games))
       .catch(error => { if (error.name !== 'AbortError') setConfigError('游戏配置读取失败：' + error.message) })
-    read<{options: {_sAlias: string; _sTitle: string}[]}>('/api/content-ratings', controller.signal)
-      .then(value => setRatingOptions(value.options))
-      .catch(error => { if (error.name !== 'AbortError') setConfigError('分级配置读取失败：' + error.message) })
     const previousScroll=history.scrollRestoration;history.scrollRestoration='manual'
     const onHash = () => {
       const old=validBrowseSnapshot(history.state?.eryouView)?history.state.eryouView as SavedView:undefined
       const preferences=listingPreferences({...savedListing(),...old})
-      const v=old?{...old,...preferences,page:old.pageSize?old.page:Math.floor(old.page*18/preferences.pageSize),author:old.author||null,category:old.category||'',subcategory:old.subcategory||'',popular:restorePopularView(old.popular)}:undefined
+      const v=old?{...old,...preferences,page:old.pageSize?old.page:Math.floor(old.page*18/preferences.pageSize),ratings:null,allowUnknown:true,author:old.author||null,category:old.category||'',subcategory:old.subcategory||'',popular:restorePopularView(old.popular)}:undefined
       if(v){applyView(v);pendingRestore.current=v}
       if(!v&&window.location.hash.startsWith('#/author/')){const parts=window.location.hash.split('/');const id=Number(parts[3]);if(Number.isSafeInteger(id)&&id>0){setAuthor({source:decodeURIComponent(parts[2]),author_id:id});setFeed('latest')}}
       setHash(window.location.hash)
@@ -131,7 +124,6 @@ export default function App() {
     if(author){params.set('author_source',author.source);params.set('author_id',String(author.author_id))}
     if(category)params.set('category',category)
     if(subcategory)params.set('subcategory',subcategory)
-    if (ratings !== null) params.set("ratings", ratings.join(","))
     setLoading(true); setError('')
     read<ModPage>('/api/mods?' + params, controller.signal).then(value=>{if(controller.signal.aborted)return;setRenderKey(listKey);setData(value);const last=Math.max(0,Math.ceil(value.total_count/pageSize)-1);if(page>last)setPage(last)})
       .catch(error => { if (error.name !== 'AbortError') setError(error.message) })
@@ -205,7 +197,7 @@ export default function App() {
       <div className="flex-1" />
       <a href="http://127.0.0.1:8501" target="_blank" rel="noopener noreferrer"
         className="rail-button" aria-label="打开 Streamlit 旧版界面" title="打开 Streamlit 旧版界面"><Icon name="external" /></a>
-      <span className="pb-6 text-[10px] text-slate-400">V0.5 RC2</span>
+      <span className="pb-6 text-[10px] text-slate-400">V0.5 RC3</span>
     </nav>
     <div className="app-body">
       <header className="topbar">
@@ -278,7 +270,7 @@ export default function App() {
             {loading && !data && <div className={`mod-grid${viewMode==='compact'?' compact-grid':''}`} role="status" aria-label="正在读取本地作品">{Array.from({length:5},(_,i)=><div key={i} className="card-skeleton"><span/><span/><span/></div>)}</div>}
             {error && <div className="error-banner" role="alert">{error}<button className="small-button mt-3" onClick={() => setRevision(revision + 1)}>重新读取</button></div>}
             {!loading && !error && data?.items.length === 0 && <div className="empty-state"><Icon name="folder" /><h2>{data.discovery?.local_count===0?'尚未收录本地作品':'没有符合当前筛选条件的作品'}</h2>
-              <p>{feed === 'subscriptions' ? '可以在作品详情中关注作者；也可调整游戏、搜索或分级条件。' : '试试“全部作品”，或调整游戏与搜索条件。'}</p></div>}
+              <p>{feed === 'subscriptions' ? '可以在作品详情中关注作者；也可调整游戏或搜索条件。' : '空库可点击上方“刷新”检查近90天作品；授权入库后自动保存，也可在更多设置中确认导入。'}</p></div>}
             <div ref={gridRef} className={`mod-grid${viewMode==='compact'?' compact-grid':''}`}>
               {data?.items.map((mod,index) => <PreviewCard key={`${mod.source}:${mod.item_type}:${mod.item_id}:${allowUnknown}`}
                 mod={mod} compact={viewMode==='compact'} priority={index<firstRow} allowUnknown={allowUnknown} timeMode={sort} onOpen={() => openMod(mod)} onReadChange={()=>setFeedRevision(value=>value+1)} />)}
@@ -291,38 +283,9 @@ export default function App() {
         </main>
         <aside className="category-panel">
           <div><p className="section-kicker">浏览设置</p><h2 className="mt-2 text-base font-semibold text-slate-800">留一点空间给发现</h2></div>
-          <div className="privacy-box">
-            <Icon name="shield" />
-            <label className="flex flex-1 items-start justify-between gap-3 text-xs leading-5">
-              <span>显示作品图片<span className="mt-1 block text-[11px] text-slate-400">独立于来源分级；仅保存本机显示偏好</span></span>
-              <input aria-label="显示作品图片" type="checkbox" checked={allowUnknown} onChange={event => { setAllowUnknown(event.target.checked); localStorage.setItem("showPreviewImages", event.target.checked ? "1" : "0") }} />
-            </label>
-          </div>
-          <div className="mb-4 space-y-2 text-xs text-slate-500">
-            <label className="flex items-center justify-between gap-2">显示 UNKNOWN / 待评级图片<input type="checkbox" checked={extraImages.unknown} onChange={e=>{localStorage.setItem('showUnknownPreviews',e.target.checked?'1':'0');setExtraImages(imagePreferences());setRevision(v=>v+1)}}/></label>
-            <label className="flex items-center justify-between gap-2">显示敏感分级图片<input type="checkbox" checked={extraImages.sensitive} onChange={e=>{localStorage.setItem('showSensitivePreviews',e.target.checked?'1':'0');setExtraImages(imagePreferences());setRevision(v=>v+1)}}/></label>
-          </div>
-          <section className="border-t border-slate-100 pt-6">
-            <button className="filter-heading" aria-expanded={ratingsOpen} aria-controls="rating-options" onClick={()=>setRatingsOpen(!ratingsOpen)}><span>内容分级</span><span>{ratings===null||ratings.length===ratingOptions.length?'全部已选':`已选 ${ratings.length}`}{ratingsOpen?' ▴':' ▾'}</span></button>
-            <div id="rating-options" hidden={!ratingsOpen}>
-            <p className="my-2 text-xs text-slate-500">来源标签，多选按 OR 筛选；与人工转载审核无关。</p>
-            <div className="my-3 flex gap-3 text-xs">
-              <button onClick={() => { setRatings(null); setPage(0) }}>全选</button>
-              <button onClick={() => { setRatings([]); setPage(0) }}>取消全选</button>
-              <button onClick={() => { setRatings(null); setPage(0) }}>恢复默认</button>
-            </div>
-            <RatingEnrichment onComplete={refreshLibrary}/>
-            {ratingOptions.map(option => <label key={option._sAlias} className="my-2 flex gap-2 text-xs">
-              <input type="checkbox" checked={ratings === null || ratings.includes(option._sAlias)} onChange={event => {
-                const current = ratings ?? ratingOptions.map(item => item._sAlias)
-                setRatings(event.target.checked ? [...current, option._sAlias] : current.filter(code => code !== option._sAlias)); setPage(0)
-              }} />{option._sTitle}
-            </label>)}
-            </div>
-          </section>
           <CategorySidebar game={game} category={category} subcategory={subcategory} revision={feedRevision} onSelect={selectCategory} disabled={feed==='popular'}/>
           <div className="mt-auto border-t border-slate-100 pt-5 text-[11px] leading-6 text-slate-400">
-            <p>ErYouToolbox · V0.5 RC2</p><p>数据来自本机 SQLite</p><p>图片来源于作品原帖</p>
+            <p>ErYouToolbox · V0.5 RC3</p><p>数据来自本机 SQLite</p><p>图片来源于作品原帖</p>
           </div>
         </aside>
       </div>

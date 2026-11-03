@@ -2,13 +2,15 @@
 
 面向 GameBanana 公开 MOD 信息的本地整理工具，使用 Python、SQLite 与 React / TypeScript。数据保存在本机；不登录来源站点，不下载 MOD 文件，不提供转载授权。目标代码仓库：`jennywikino/ErYouToolbox`。
 
-当前候选版本为 **0.5.0-rc2**，尚未发布稳定版。首次使用需明确选择自动化模式；客户端打开期间按到期时间检查，关闭后不后台运行。历史标签 v0.4.0-rc1 保持不变。
+当前候选版本为 **0.5.0-rc3**，尚未发布稳定版。首次使用需明确选择自动化模式；推荐每3小时检查并入库近90天发布或更新的作品，关闭后不后台运行。历史标签保持不变。
 
 ## Windows 桌面候选版
 
 使用 pywebview + PyInstaller onedir，内嵌现有 React 生产资源与 Python 本地 API。完整解压后双击 `ErYouToolbox.exe`，无需安装 Python、Node 或启动 Vite；需要 Windows x64 和 Microsoft Edge WebView2 Evergreen Runtime。
 
 首次启动在 EXE 旁创建 `userdata/` 和**空作品库**，不会读取或迁移源码目录的个人数据库。更新时保留整个 userdata，不将其覆盖或上传。关闭客户端后不执行后台检查；Web 版计划任务与便携版数据独立，尚不支持便携版后台计划任务。
+
+rc3已取消内容年龄分级筛选与图片遮挡，默认展示有效来源图片。浏览五列/25件、分类、已阅和关注不变。使用“刷新”获取近期候选；“继续向前搜索”逐批拓展较早历史，覆盖不完整时明确提示。缓存管理先预览确认，只清理白名单可再生缓存，不清空作品或个人状态。详见 [rc3收敛与验收](docs/OB6_E2_F4_RELEASE_CLEANUP.md)。
 
 源码构建、隔离环境及人工验收见 [桌面打包说明](docs/OB6_E2_DESKTOP_PACKAGE.md) 和 [Release 检查清单](docs/RELEASE_CHECKLIST.md)。本轮仅本地候选，不自动建立 Release 或标签。
 

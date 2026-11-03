@@ -89,6 +89,10 @@ class HistorySync:
         settings, state = self.settings(), self.state()
         path = self.directory/'latest.json'
         report = json.loads(path.read_text(encoding='utf-8')) if path.exists() else None
+        preview=self.directory/'preview_latest.json'
+        if preview.exists():
+            draft=json.loads(preview.read_text(encoding='utf-8'))
+            if not report or draft.get('started_at','')>report.get('started_at',''):report=draft
         if report and report.get('status')=='checking':
             try:
                 with instance_lock(self.root/'logs/content_ratings/instance.lock'):
@@ -99,10 +103,10 @@ class HistorySync:
         return {'settings':settings, 'interval_hours':24, 'games':games, 'last_run':report,
                 'not_before':state.get('not_before',0), 'coverage':'incomplete'}
 
-    def launch(self):
+    def launch(self,manual=False):
         if not self.running.acquire(blocking=False): return {'status':'already_running'}
         def work():
-            try: self.run()
+            try: self.run(manual=manual,dry_run=manual and self.mode_provider()['mode']=='off')
             except Exception as exc:
                 # A competing job must never have its report replaced.
                 if not isinstance(exc,RuntimeError) or 'instance is active' not in str(exc):
@@ -136,12 +140,12 @@ class HistorySync:
             protected.append(r)
         return protected
 
-    def run(self, *, dry_run=False, game=None, max_pages=None, client=None, lock_held=False):
+    def run(self, *, dry_run=False, game=None, max_pages=None, client=None, lock_held=False,manual=False):
         if not self.database.is_file(): raise ValueError('Existing database required; no initialization is performed')
         with nullcontext() if lock_held else instance_lock(self.root/'logs/content_ratings/instance.lock'):
-            return self._run(dry_run,game,max_pages,client)
+            return self._run(dry_run,game,max_pages,client,manual)
 
-    def _run(self, dry_run, game, max_pages, client):
+    def _run(self, dry_run, game, max_pages, client,manual=False):
         settings, state = self.settings(), self.state()
         mode = 'check' if dry_run else self.mode_provider()['mode']
         if not dry_run and (mode=='off' or not settings['enabled'] or settings['paused']): return {'status':'disabled','requests':0}
@@ -162,13 +166,13 @@ class HistorySync:
         with nullcontext(client) if client is not None else httpx.Client(timeout=TIMEOUT,headers=HEADERS) as source:
             for g in selected:
                 gid = str(g['game_id']); attempt = state['games'].get(gid,{})
-                if not dry_run and now<attempt.get('last_attempt_epoch',-INTERVAL)+INTERVAL:
+                if not dry_run and not manual and now<attempt.get('last_attempt_epoch',-INTERVAL)+INTERVAL:
                     report['games'].append({'game_id':g['game_id'],'name':g['name'],'status':'not_due'}); continue
-                if not dry_run:
+                if not dry_run or manual:
                     current=self.settings()
-                    if current['paused'] or not current['enabled'] or self.mode_provider()['mode']=='off':
+                    if current['paused'] or (not dry_run and (not current['enabled'] or self.mode_provider()['mode']=='off')):
                         report['stopped']=True;break
-                entry = self._scan(source,g,committed.get(gid),attempt,budget,mode,dry_run,state,report,destination)
+                entry = self._scan(source,g,committed.get(gid),attempt,budget,mode,dry_run,state,report,destination,manual)
                 report['games'].append(entry)
                 report['requests'] += entry['requests']
                 atomic_json(destination,report)
@@ -188,7 +192,7 @@ class HistorySync:
         atomic_json(self.directory/(('preview_' if dry_run else 'run_')+secrets.token_hex(10)+'.json'),report)
         return report
 
-    def _scan(self, client, game, checkpoint, attempt, budget, mode, dry_run, state, report, destination):
+    def _scan(self, client, game, checkpoint, attempt, budget, mode, dry_run, state, report, destination,manual=False):
         started = utc(); gid=str(game['game_id'])
         entry = {'game_id':game['game_id'],'name':game['name'],'status':'checking','requests':0,'fetched':0,
                  'duplicates':0,'pages':[],'failures':[],'coverage':'incomplete','source_end_observed':False}
@@ -207,9 +211,9 @@ class HistorySync:
         try:
             for page in planned:
                 if entry['requests']>=budget: break
-                if not dry_run:
+                if not dry_run or manual:
                     current=self.settings()
-                    if current['paused'] or not current['enabled'] or self.mode_provider()['mode']=='off': raise InterruptedError('Paused or disabled; boundary not advanced')
+                    if current['paused'] or (not dry_run and (not current['enabled'] or self.mode_provider()['mode']=='off')): raise InterruptedError('Paused or disabled; boundary not advanced')
                 if entry['requests']: time.sleep(1)
                 result = collect_game(client,game,max_pages=1,per_page=per_page,start_page=page,sort=SORT,
                                       max_requests=budget-entry['requests'],max_rate_wait=0)

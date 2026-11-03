@@ -130,7 +130,7 @@ class DesktopTests(unittest.TestCase):
         with patch.object(react_api,'ROOT',Path(self.temp.name)/'no-development-source'):
             from react_api import ReadOnlyAPI
             api=ReadOnlyAPI(self.db,self.root/'config/games.json',runtime_root=self.root)
-            self.assertEqual(api.get('/api/content-ratings')[0],200)
+            self.assertEqual(api.get('/api/content-ratings')[0],410)
 
     def test_unwritable_data_fails_without_fallback(self):
         with patch('desktop_app.Path.open',side_effect=PermissionError('Read only')):
@@ -145,7 +145,7 @@ class DesktopTests(unittest.TestCase):
         self.assertEqual(self.db.read_bytes(),original)
 
     def test_http_sync_preview_confirm_repeat(self):
-        sample={'collected_at':'2026-11-03T00:00:00Z','records':[{'source':'gamebanana','item_type':'Mod','item_id':21,'game_id':8552,'title':'Fixture'}], 'failure_reasons':[],'actual_record_count':1,'request_count':1}
+        sample={'collected_at':'2026-11-03T00:00:00Z','records':[{'source':'gamebanana','item_type':'Mod','item_id':21,'game_id':8552,'title':'Fixture','created_at':'2026-11-02T00:00:00Z'}], 'failure_reasons':[],'actual_record_count':1,'request_count':1}
         def wait():
             for _ in range(300):
                 state=json.loads(self.request('/api/sync')[1])

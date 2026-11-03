@@ -247,14 +247,28 @@ class HistoryTests(unittest.TestCase):
         self.assertFalse(disabled.database.exists())
         auto=AutoSync(self.root,self.db,self.games,state_dir=self.root/'device')
         auto.configure({**AUTO_DEFAULTS,'mode':'check'})
-        # A daily task not due can still dispatch due history, without another lock.
+        # Earlier-history expansion is explicitly manual in rc3.
         from auto_sync import atomic_json
         atomic_json(auto.directory/'last_run.json',{'status':'success','started_epoch':self.now,'started_at':'2026-01-01T00:00:00Z'})
         client=self.client()
         with patch('history_sync.httpx.Client',return_value=client):
             result=auto.run()
-        self.assertEqual(result['status'],'not_due');self.assertEqual(result['history']['requests'],12)
+        self.assertEqual(result['status'],'not_due');self.assertEqual(result['history']['requests'],0);self.assertEqual(result['history']['status'],'manual_only')
         self.assertEqual(self.count('mods'),0)
+
+    def test_manual_history_can_continue_without_waiting_another_day(self):
+        self.run_scan()
+        result=self.run_scan(manual=True)
+        self.assertEqual(result['status'],'success')
+        self.assertGreater(self.h.committed()['8552']['page'],2)
+
+    def test_manual_off_preview_never_advances_committed_progress(self):
+        self.mode['mode']='off'
+        before=self.db.read_bytes()
+        result=self.run_scan(dry_run=True,manual=True)
+        self.assertEqual(result['status'],'success')
+        self.assertEqual(self.h.committed(),{})
+        self.assertEqual(self.db.read_bytes(),before)
 
     def test_checkpoint_recovers_after_mirror_write_failure(self):
         from history_sync import atomic_json as real

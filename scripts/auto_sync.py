@@ -14,7 +14,7 @@ sys.path.insert(0,str(ROOT/'src'))
 from web_sync import WebSync, utc
 from backfill_content_ratings import instance_lock
 
-DEFAULTS={'mode':'off','interval_hours':6,'max_pages':3}
+DEFAULTS={'mode':'off','interval_hours':3,'max_pages':3}
 
 def atomic_json(path,value):
     path.parent.mkdir(parents=True,exist_ok=True)
@@ -44,6 +44,14 @@ class AutoSync:
         self.games=games
         self.directory=Path(state_dir) if state_dir else runtime_dir(self.root)
         self.running=threading.Lock()
+        self.cancel=threading.Event()
+        self.current_service=None
+
+    def stop(self):
+        self.cancel.set()
+        if self.current_service:self.current_service.cancel.set()
+        self.history().configure({**self.history().settings(),'paused':True})
+        return {'status':'stop_requested'}
 
     def launch(self, *, startup=False):
         if self.settings()['mode']=='off':
@@ -52,6 +60,7 @@ class AutoSync:
         if not self.running.acquire(blocking=False):
             if startup:return {'status':'already_running','requests':0}
             raise ValueError('Automatic sync already running')
+        self.cancel.clear()
         def target():
             try:self.run(force=not startup,preserve_preview=startup)
             except Exception as exc:
@@ -86,9 +95,8 @@ class AutoSync:
         return HistorySync(self.root,self.database,self.games,mode_provider=self.settings)
 
     def run_history(self):
-        # Caller already owns the same OS lock. Never reacquire it here.
-        try:return self.history().run(lock_held=True)
-        except (OSError,ValueError) as exc:return {'status':'failed','requests':0,'error':str(exc)}
+        # Older-history expansion is now an explicit user action only.
+        return {'status':'manual_only','requests':0}
 
     def status(self):
         settings=self.settings();last=self.directory/'last_run.json'
@@ -134,6 +142,7 @@ class AutoSync:
                     atomic_json(self.directory/'last_run.json',{**previous,'not_before':history['not_before']})
                 return {'status':'not_due','requests':history.get('requests',0),'history':history}
             service=WebSync(self.database,self.root,self.games or json.loads((self.root/'config/games.json').read_text(encoding='utf-8'))['games'])
+            self.current_service=service
             old=service.view()
             if old['status']=='waiting' and (preserve_preview or not old.get('automatic')) and service.candidate and now-service.candidate['created']<=600:
                 deferred={'status':'manual_preview_pending','started_epoch':now,'started_at':utc(),'requests':0,
@@ -148,13 +157,13 @@ class AutoSync:
             record={'status':'checking','started_at':utc(),'started_epoch':now,'mode':mode,'requests':0}
             atomic_json(self.directory/'last_run.json',record)
             try:
-                service.save();service.check_games(games,10,budget,True)
+                service.save();service.check_games(games,10,budget,True,window_days=90)
                 service.state['automatic']=True
                 service.save()
                 if mode=='apply' and service.state['status']=='waiting':
                     # Re-read opt-in immediately before the importer begins its transaction.
                     def write_guard():
-                        if self.settings()['mode']!='apply':raise ValueError('Automatic apply was disabled during check')
+                        if self.cancel.is_set() or self.settings()['mode']!='apply':raise ValueError('Automatic apply was stopped or disabled during check')
                     write_guard()
                     service.apply(only_source_changes=True,write_guard=write_guard)
                 state=service.view()
@@ -163,13 +172,13 @@ class AutoSync:
                               failures=state.get('failures',[]),coverage=state.get('coverage','incomplete'),
                               inserted=state.get('report',{}).get('inserted',0),source_updated=state.get('report',{}).get('source_update_events',0))
                 if state.get('scan_status')=='rate_limited':record['not_before']=time.time()+settings['interval_hours']*3600
-                else:
+                elif not self.cancel.is_set():
                     from eryoutoolbox.author_updates import run_rotation
                     from eryoutoolbox.gamebanana import TIMEOUT,HEADERS
                     import httpx
                     with httpx.Client(timeout=TIMEOUT,headers=HEADERS) as client:
                         def author_guard():
-                            if self.settings()['mode']!='apply':raise ValueError('Automatic apply disabled')
+                            if self.cancel.is_set() or self.settings()['mode']!='apply':raise ValueError('Automatic apply stopped or disabled')
                         try:
                             authors=run_rotation(self.database,self.root,client=client,apply=mode=='apply',advance=not dry_run,write_guard=author_guard)
                         except (OSError,ValueError,httpx.HTTPError) as exc:
@@ -195,6 +204,7 @@ class AutoSync:
                 if isinstance(exc,KeyboardInterrupt):raise
                 return record
             record['ended_at']=utc()
+            self.current_service=None
             atomic_json(self.directory/'last_run.json',record)
             atomic_json(self.directory/('run_'+secrets.token_hex(12)+'.json'),record)
             return record

@@ -203,4 +203,5 @@ def normalize_record(record: dict[str, Any], game: dict[str, Any]) -> dict[str, 
         "source_rating_fields": {key: record[key] for key in ("_aContentRatings", "_bHasContentRatings", "_sInitialVisibility") if key in record},
         "content_rating_status": "UNKNOWN",
         "has_content_ratings": record.get("_bHasContentRatings") if isinstance(record.get("_bHasContentRatings"), bool) else None,
+        "metrics": {label:record[key] for label,key in (('likes','_nLikeCount'),('views','_nViewCount'),('downloads','_nDownloadCount'),('comments','_nPostCount')) if type(record.get(key)) is int and record[key]>=0},
     }

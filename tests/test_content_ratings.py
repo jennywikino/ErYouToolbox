@@ -48,7 +48,7 @@ class RatingPersistenceTests(unittest.TestCase):
         api = ReadOnlyAPI(self.path)
         for code in ('pn', 'nu', 'sc', 'pn,nu,sc'):
             self.assertEqual(api.get('/api/mods?ratings=' + code)[1]['total_count'], 1)
-        self.assertEqual(api.get('/api/mods?ratings=UNKNOWN')[1]['total_count'], 0)
+        self.assertEqual(api.get('/api/mods?ratings=UNKNOWN')[1]['total_count'], 1)
         second = save_verified_samples(self.c, self.report, dry_run=False,
                                        before_write=lambda: self.fail('Idempotent import must not back up'))
         self.assertEqual(second['updated'], 0)

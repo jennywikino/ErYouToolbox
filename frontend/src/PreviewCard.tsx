@@ -19,7 +19,6 @@ export default function PreviewCard({ mod, allowUnknown, onOpen, timeMode = 'cre
   const allowed = canShowModImages(mod, allowUnknown)
   const url = allowed ? cardPreviewUrl(mod,compact) : null
   useEffect(()=>{setFailed(false);setLoaded(!!imageRef.current?.complete && imageRef.current.naturalWidth>0)},[url,near])
-  const hidden = mod.image_count > 0 && !allowed
   const timestamp = discoveryTime(mod, timeMode)
   return <article ref={cardRef} className={`mod-card group${compact?' compact-card':''}`}
     data-mod-identity={`${mod.source}:${mod.item_type}:${mod.item_id}`}>
@@ -30,13 +29,12 @@ export default function PreviewCard({ mod, allowUnknown, onOpen, timeMode = 'cre
         onLoad={()=>setLoaded(true)} onError={() => setFailed(true)} referrerPolicy="no-referrer" />{!loaded&&<span role="status" className="absolute bottom-2 left-2 rounded bg-white/90 px-2 py-1 text-xs text-slate-500">图片加载中…</span>}</>
         : <ImagePlaceholder reason={failed ? '图片暂时无法加载'
           : url&&!near ? '图片按需加载'
-          : hidden ? (mod.content_rating_status === 'UNKNOWN' ? '未评级 · 预览已隐藏' : '分级限制 · 预览已隐藏')
           : '暂无已保存预览图'} />}
     </div>
     <div className="card-body p-4">
       {!compact&&<div className="mb-2 flex items-center justify-between gap-2">
         <span className="text-[11px] font-medium tracking-wide text-violet-700">{mod.game_name || '暂无游戏信息'}</span>
-        <span className="rating-tag">{mod.source_ratings?.codes.join(' / ') || 'UNKNOWN'}</span>
+
       </div>}
       <h3 title={mod.title||undefined} className="line-clamp-2 min-h-11 text-sm font-semibold leading-[1.55] text-slate-800">{mod.title || '暂无标题'}</h3>
       {compact?<div className="compact-byline"><span title={mod.author_name||undefined}>{mod.author_name||'暂无作者'}</span><span title={mod.game_name||undefined}>{mod.game_name||'暂无游戏信息'}</span></div>:<><div className="mt-3 flex items-center gap-2 text-xs text-slate-500">
@@ -49,7 +47,7 @@ export default function PreviewCard({ mod, allowUnknown, onOpen, timeMode = 'cre
       {mod.source_update_detected_at && <p className="mt-2 text-[11px] font-medium text-violet-700" title={mod.source_update_detected_at}>已记录来源更新</p>}
       {mod.subscription_followed_at && <p className="mt-2 text-[11px] text-slate-500">{subscriptionActivity(mod)}{mod.source_update_detected_at ? ` · 来源更新 ${dateLabel(mod.updated_at)}` : ''}</p>}
       </>}
-      {compact&&<div className="compact-status" title={mod.source_ratings?.codes.join(' / ')}><span>{dateLabel(timestamp.value)}</span><span>{mod.source_ratings?.verification==='explicit_labels'?'来源已分级':mod.source_ratings?.verification==='source_unrated_flag'?'来源未评级':'未核验'}</span></div>}
+      {compact&&<div className="compact-status"><span>{dateLabel(timestamp.value)}</span><span>{mod.category||mod.subcategory||""}</span></div>}
     </div>
     </button>
     {failed&&url&&<button className="small-button mx-4 my-2" onClick={()=>{setLoaded(false);setFailed(false)}}>重试预览图</button>}

@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 from eryoutoolbox.ui_queries import (  # noqa: E402
     DatabaseReadError, preview_display_decision, query_mod_detail, query_mods,
-    readonly_connection, query_discovery_status, query_categories,
+    readonly_connection, query_discovery_status, query_categories, valid_http_url,
 )
 from eryoutoolbox.app_resources import resource_root
 from eryoutoolbox.subscriptions import status as follow_status, set_follow
@@ -25,9 +25,8 @@ from web_sync import WebSync
 from eryoutoolbox.authors import author_list,member,fill_one
 from auto_sync import AutoSync
 from manage_auto_sync import task_status
-from rating_enrichment import RatingEnrichment
-from eryoutoolbox.content_ratings import preview_allowed
 from eryoutoolbox.source_detail import SourceDetail
+from eryoutoolbox.cache_management import CacheManagement
 POPULAR = PopularClient()
 
 def author_summary(report):
@@ -49,15 +48,15 @@ def valid_write_origin(headers, port):
 class ReadOnlyAPI:
     def __init__(self, database: Path, games_path: Path | None = None, *, runtime_root: Path | None = None, resources_root: Path | None = None):
         config_root = Path(resources_root) if resources_root is not None else resource_root()
-        self.rating_config = json.loads((config_root / "config" / "content_ratings.json").read_text(encoding="utf-8"))
         self.database = database
         self.games = json.loads((games_path or config_root/'config/games.json').read_text(encoding="utf-8"))["games"]
         local_root=runtime_root if runtime_root is not None else (ROOT if database.resolve().is_relative_to(ROOT) else database.parent)
         self.runtime_root = local_root
         self.web_sync = WebSync(database, local_root, self.games)
         self.auto_sync=AutoSync(local_root,database,self.games,state_dir=None if local_root==ROOT else local_root/'logs/auto_sync')
-        self.rating_enrichment=RatingEnrichment(database,local_root)
         self.source_detail=SourceDetail()
+        self.cache=CacheManagement(local_root,POPULAR,self.source_detail,
+                                   busy=lambda:self.web_sync.worker_active or self.auto_sync.running.locked())
 
     @staticmethod
     def number(query, name, default, minimum, maximum):
@@ -69,8 +68,9 @@ class ReadOnlyAPI:
     @staticmethod
     def image_policy(item, allow_unknown, show_sensitive=False, show_unknown=False):
         item = dict(item)
-        permitted=preview_allowed(item,allow_unknown,show_sensitive,show_unknown)
-        urls = item.get("preview_urls", []) if permitted else []
+        # Old image/rating preferences are ignored. URL validation still applies
+        # in the normalizer/query parser and in the rendering components.
+        urls = [url for url in item.get("preview_urls", []) if valid_http_url(url)]
         state = "DISPLAY" if urls else "NO_IMAGE" if not item.get("image_count", len(item.get("preview_urls", []))) else "PREFERENCE_HIDDEN"
         item["preview_state"] = state
         item["image_count"] = len(item.get("preview_images", item.get("preview_urls", [])))
@@ -86,8 +86,9 @@ class ReadOnlyAPI:
         show_sensitive = query.get('show_sensitive',['0'])[0]=='1'
         show_unknown = query.get('show_unknown_preview',['0'])[0]=='1'
         try:
+            if path.path=='/api/cache':return 200,self.cache.status()
             if path.path=='/api/rating-enrichment':
-                return 200,self.rating_enrichment.status()
+                return 410,{'error':'Content rating enrichment has been retired'}
             if path.path=='/api/categories':
                 gid=self.number(query,'game',0,1,2**31-1) if query.get('game',[''])[0] else None
                 if gid is not None and gid not in {g['game_id'] for g in self.games}:raise ValueError('Unknown game')
@@ -140,7 +141,7 @@ class ReadOnlyAPI:
                     raise ValueError('Invalid source')
                 return 200, follow_status(self.database, source, author_id)
             if path.path == "/api/content-ratings":
-                return 200, self.rating_config
+                return 410, {'error':'Content rating filters have been retired'}
             if path.path == "/api/games":
                 return 200, {"games": self.games}
             if path.path == "/api/mods":
@@ -151,10 +152,7 @@ class ReadOnlyAPI:
                     game_id = self.number(query, "game", 0, 1, 2**31 - 1)
                     if game_id not in {game["game_id"] for game in self.games}:
                         raise ValueError("Unknown game ID.")
-                codes = query.get("ratings", [None])[0]
-                codes = codes.split(",") if codes else ([] if codes == "" else None)
-                if codes is not None and any(code not in {o["_sAlias"] for o in self.rating_config["options"]} for code in codes):
-                    raise ValueError("Unknown content rating code.")
+                codes = None  # Ignore pre-rc3 bookmarked rating filters.
                 result = query_mods(
                     self.database, game_id=game_id,
                     author_source=query.get('author_source',[None])[0],
@@ -162,7 +160,7 @@ class ReadOnlyAPI:
                     exclude_item_id=self.number(query,'exclude_id',0,1,2**63-1) if query.get('exclude_id') else None,
                     search=query.get("search", [""])[0][:200],
                     sort=query.get("sort", ["created"])[0],
-                    require_updated=query.get("sort", ["created"])[0] == 'updated',
+                    require_updated=query.get("sort", ["created"])[0] == 'updated' and query.get('feed',[''])[0]=='subscriptions',
                     subscriptions_only=query.get('feed',[''])[0] == 'subscriptions',
                     read_filter=query.get('read',['all'])[0],
                     limit=limit, offset=offset, rating_codes=codes,
@@ -200,6 +198,15 @@ class ReadOnlyAPI:
                     raise ValueError("source and item_type are required.")
                 item = query_mod_detail(self.database, source=source,
                                        item_type=item_type, item_id=item_id)
+                if item is not None and query.get('source_refresh',['0'])[0]=='1':
+                    if source!='gamebanana' or item_type!='Mod':raise ValueError('Unsupported source detail')
+                    game=next((g for g in self.games if g['game_id']==item['game_id']),None)
+                    if not game:raise ValueError('Unsupported game')
+                    fresh=self.source_detail.fetch(item_id,game)
+                    # On-demand display only. Never replace saved images or user state.
+                    for field in ('metrics','files','file_count','description','created_at','updated_at'):
+                        if fresh.get(field) is not None:item[field]=fresh[field]
+                    item['source_display_refreshed']=True
                 if item is None:
                     if source=='gamebanana' and item_type=='Mod' and query.get('remote_game'):
                         gid=self.number(query,'remote_game',0,1,2**31-1)
@@ -221,7 +228,7 @@ class ReadOnlyAPI:
 def make_handler(api: ReadOnlyAPI, port: int):
     class Handler(BaseHTTPRequestHandler):
         def do_POST(self):
-            if self.path not in ('/api/subscription','/api/author-updates','/api/read-state','/api/sync','/api/auto-sync','/api/auto-sync/run','/api/auto-sync/startup','/api/history-sync','/api/rating-enrichment') or not valid_write_origin(self.headers,port) or self.headers.get('Transfer-Encoding'):
+            if self.path not in ('/api/cache','/api/subscription','/api/author-updates','/api/read-state','/api/sync','/api/auto-sync','/api/auto-sync/run','/api/auto-sync/startup','/api/history-sync','/api/rating-enrichment') or not valid_write_origin(self.headers,port) or self.headers.get('Transfer-Encoding'):
                 self.send_error(403)
                 return
             try:
@@ -229,16 +236,26 @@ def make_handler(api: ReadOnlyAPI, port: int):
                 if not 0<length<=2048:
                     raise ValueError('Invalid request size')
                 body = json.loads(self.rfile.read(length))
-                if self.path == '/api/rating-enrichment':
-                    result=api.rating_enrichment.start(body)
+                if self.path=='/api/cache':result=api.cache.command(body)
+                elif self.path == '/api/rating-enrichment':
+                    raise ValueError('Content rating enrichment has been retired')
                 elif self.path == '/api/auto-sync':
                     result=api.auto_sync.configure(body)
                 elif self.path == '/api/history-sync':
                     history=api.auto_sync.history()
-                    if body=={'action':'run'}:result=history.launch()
+                    if body=={'action':'continue'}:
+                        if api.web_sync.worker_active or api.auto_sync.running.locked():raise ValueError('Another sync task is active')
+                        if (history.status().get('last_run') or {}).get('status')=='checking':raise ValueError('Historical scan already running')
+                        history.configure({**history.settings(),'enabled':True,'paused':False,'max_pages':2})
+                        result=history.launch(manual=True)
+                    elif body=={'action':'stop'}:result=history.configure({**history.settings(),'paused':True})
+                    elif body=={'action':'run'}:result=history.launch(manual=True)
                     elif isinstance(body,dict) and set(body)=={'action','settings'} and body['action']=='configure':result=history.configure(body['settings'])
                     else:raise ValueError('Invalid historical scan action')
                 elif self.path in ('/api/auto-sync/run','/api/auto-sync/startup'):
+                    if body=={'action':'stop'}:
+                        result=api.auto_sync.stop()
+                        raw=json.dumps(result).encode('utf-8');self.send_response(200);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(raw)));self.end_headers();self.wfile.write(raw);return
                     if body!={}:raise ValueError('Invalid automatic run request')
                     result=api.auto_sync.launch(startup=self.path.endswith('/startup'))
                 elif self.path == '/api/sync':

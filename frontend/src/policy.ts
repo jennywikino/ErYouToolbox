@@ -7,19 +7,16 @@ export function safeUrl(value: unknown): string | null {
 }
 
 export function imagePreferenceQuery(): string {
-  const prefs=imagePreferences()
-  return `&show_sensitive=${prefs.sensitive?'1':'0'}&show_unknown_preview=${prefs.unknown?'1':'0'}`
+  return '' // Legacy preferences must not hide images after rc3.
 }
 
 export function imagePreferences(){
-  return {sensitive:typeof localStorage!=='undefined'&&localStorage.getItem('showSensitivePreviews')==='1',
-    unknown:typeof localStorage!=='undefined'&&localStorage.getItem('showUnknownPreviews')==='1'}
+  return {sensitive:true,unknown:true} // Old per-rating storage is ignored.
 }
 
 export function canShowImages(rating: string, showImages: boolean, codes:string[]=['UNKNOWN'], sensitive=false, unknown=false): boolean {
-  if(!showImages)return false
-  if((['ADULT','NSFW'].includes(rating)||codes.some(c=>['pn','nu','sc','ft','bg','iv'].includes(c)))&&!sensitive)return false
-  if((!codes.length||codes.includes('UNKNOWN')||codes.includes('rp'))&&!unknown)return false
+  // Compatibility signature for old snapshots/components; policy is retired.
+  void rating;void showImages;void codes;void sensitive;void unknown
   return true
 }
 
@@ -47,13 +44,19 @@ export function cardPreviewUrl(mod:{preview_urls:string[];preview_images?:{thumb
 }
 
 export function dateLabel(value: string | null | undefined): string {
-  if (!value) return '暂无日期'
+  if (!value) return '暂无来源数据'
   const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? '暂无日期' : date.toLocaleDateString('zh-CN', { timeZone: 'UTC' })
+  return Number.isNaN(date.getTime()) ? '暂无来源数据' : date.toLocaleDateString('zh-CN', { timeZone: 'UTC' })
+}
+
+export function sourceUpdateDate(mod:{created_at?:string|null;updated_at?:string|null}){
+  const updated=mod.updated_at&&Number.isFinite(Date.parse(mod.updated_at))?mod.updated_at:null
+  const created=mod.created_at&&Number.isFinite(Date.parse(mod.created_at))?mod.created_at:null
+  return {value:updated||created,hasIndependentUpdate:!!updated}
 }
 
 export function discoveryTime(mod: {created_at?: string | null; updated_at?: string | null; first_seen_at?: string}, sort: string) {
-  if (sort === 'updated') return { label: '来源更新', value: mod.updated_at }
+  if (sort === 'updated') {const updated=sourceUpdateDate(mod);return { label: updated.hasIndependentUpdate?'来源更新':'暂无单独更新记录', value: updated.value }}
   if (sort === 'first_seen') return { label: '本地发现', value: mod.first_seen_at }
   return { label: '来源发布', value: mod.created_at }
 }

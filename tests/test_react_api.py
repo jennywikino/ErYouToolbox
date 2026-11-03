@@ -83,25 +83,16 @@ class ReactAPITests(unittest.TestCase):
         self.assertEqual([item["item_id"] for item in page["items"]], [1])
         self.assertEqual(page["items"][0]["category"], "Character")
 
-    def test_unknown_images_require_explicit_preference(self):
-        target = "/api/mod?source=gamebanana&item_type=Mod&item_id=1"
-        _, item = self.api.get(target + "&show_unrated=0")
-        self.assertEqual(item["preview_images"], [])
-        self.assertEqual(item["preview_urls"], [])
-        self.assertEqual(item["preview_state"], "PREFERENCE_HIDDEN")
-        _, hidden = self.api.get(target + "&show_unrated=1")
-        self.assertEqual(hidden['preview_urls'],[])
-        _, item = self.api.get(target + "&show_unrated=1&show_unknown_preview=1")
-        self.assertEqual(item["preview_images"], self.images)
-        self.assertEqual(item["item_id"], 1)
+    def test_old_image_preferences_do_not_hide_previews(self):
+        for suffix in ('&show_unrated=0','&show_unrated=1','&show_unknown_preview=0&show_sensitive=0'):
+            _,item=self.api.get('/api/mod?source=gamebanana&item_type=Mod&item_id=1'+suffix)
+            self.assertEqual(item['preview_images'],self.images)
+            self.assertEqual(item['preview_state'],'DISPLAY')
 
-    def test_adult_urls_obey_image_preference(self):
-        item = {"content_rating_status": "ADULT", "preview_urls": ["https://example.org/a.jpg"],
-                "preview_images": self.images}
-        self.assertEqual(self.api.image_policy(item, True)['preview_urls'],[])
-        result = self.api.image_policy(item, True, True, True)
-        self.assertEqual(result["preview_urls"], item["preview_urls"])
-        self.assertEqual(result["preview_images"], self.images)
+    def test_adult_urls_are_not_hidden_by_retired_policy(self):
+        item={'content_rating_status':'ADULT','preview_urls':['https://example.org/a.jpg'],'preview_images':self.images}
+        self.assertEqual(self.api.image_policy(item,False)['preview_urls'],item['preview_urls'])
+        self.assertEqual(self.api.image_policy(item,False)['preview_images'],self.images)
 
     def test_normalized_metadata_retains_explicit_source_labels(self):
         from eryoutoolbox.models import normalize_record
@@ -119,20 +110,11 @@ class ReactAPITests(unittest.TestCase):
             self.assertEqual(source_ratings(raw)['codes'], ['UNKNOWN'])
         self.assertEqual(source_ratings(json.dumps({'_record': {'has_content_ratings': False}}))['codes'], ['-'])
 
-    def test_rating_or_filter_is_applied_before_pagination(self):
-        connection = connect_database(self.path)
-        for item_id, raw in [(1, {'_aContentRatings': {'sc': 'Sexual Content', 'pn': 'Partial Nudity'}}),
-                             (2, {'_bHasContentRatings': False})]:
-            connection.execute('UPDATE mods SET raw_metadata_json=? WHERE item_id=?', (json.dumps(raw), item_id))
-        connection.commit()
-        connection.close()
-        _, page = self.api.get('/api/mods?ratings=sc,pn&limit=1')
-        self.assertEqual(page['total_count'], 1)
-        self.assertEqual(page['items'][0]['source_ratings']['codes'], ['sc', 'pn'])
-        self.assertEqual(self.api.get('/api/mods?ratings=-')[1]['total_count'], 1)
-        self.assertEqual(self.api.get('/api/mods?ratings=UNKNOWN')[1]['total_count'], 20)
-        self.assertEqual(self.api.get('/api/mods?ratings=')[1]['total_count'], 0)
-        self.assertEqual(self.api.get('/api/mods?ratings=fictional')[0], 400)
+    def test_retired_rating_filters_do_not_affect_server_pagination(self):
+        for code in ('sc,pn','-','UNKNOWN','','fictional'):
+            status,page=self.api.get('/api/mods?ratings='+code+'&limit=1')
+            self.assertEqual(status,200);self.assertEqual(page['total_count'],22)
+            self.assertEqual(len(page['items']),1)
 
     def test_database_unchanged(self):
         before = hashlib.sha256(self.path.read_bytes()).digest()
@@ -151,7 +133,7 @@ class ReactAPITests(unittest.TestCase):
         _, discovered = self.api.get('/api/mods?sort=first_seen&limit=1')
         self.assertEqual(discovered['items'][0]['item_id'], 1)
 
-    def test_recent_updates_exclude_missing_and_modified_only_records(self):
+    def test_recent_sort_keeps_missing_records_without_faking_updates(self):
         connection = connect_database(self.path)
         connection.execute("UPDATE mods SET updated_at='2026-10-20T00:00:00.500Z',created_at='2020-01-01T00:00:00Z' WHERE item_id=1")
         connection.execute("UPDATE mods SET updated_at='2026-10-20T00:00:00Z' WHERE item_id=2")
@@ -160,7 +142,7 @@ class ReactAPITests(unittest.TestCase):
         connection.commit()
         connection.close()
         _, page = self.api.get('/api/mods?sort=updated&limit=1')
-        self.assertEqual(page['total_count'], 2)
+        self.assertEqual(page['total_count'], 22)
         self.assertEqual(page['items'][0]['item_id'], 1)
         self.assertIsNone(page['items'][0]['source_update_detected_at'])
         _, next_page = self.api.get('/api/mods?sort=updated&limit=1&offset=1')

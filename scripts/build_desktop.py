@@ -11,7 +11,7 @@ import zipfile
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT/'src'))
 from eryoutoolbox.app_resources import inventory, verify_resources, MANIFEST
-VERSION = '0.5.0-rc2'
+VERSION = '0.5.0-rc3'
 
 
 def main():
@@ -43,7 +43,7 @@ def main():
                '--hidden-import','history_sync','--hidden-import','eryoutoolbox.author_updates',
                '--add-data',f'{ROOT / "frontend/dist"};frontend/dist',
                '--add-data',f'{ROOT / "config/games.json"};config',
-               '--add-data',f'{ROOT / "config/content_ratings.json"};config',str(ROOT/'scripts/desktop_app.py')]
+               str(ROOT/'scripts/desktop_app.py')]
     command[-1:-1] = ['--add-data', f'{resource_manifest};.']
     subprocess.run(command,cwd=ROOT,check=True)
     package = output/'ErYouToolbox'
@@ -52,9 +52,17 @@ def main():
         raise RuntimeError('Packaged resources differ from pre-build inputs')
     versions = json.loads(subprocess.check_output([str(args.packaging_python),'-c',
         "import importlib.metadata as m,json,platform; print(json.dumps({'python':platform.python_version(),**{n:m.version(n) for n in ['pywebview','pythonnet','pyinstaller','httpx']}}))"],text=True))
-    manifest={'version':VERSION,'build_revision':'OB6-E2-F3','source_commit':git_sha,'working_tree_dirty':dirty,'platform':platform_info,'dependencies':versions,'resource_manifest':'_internal/'+MANIFEST}
+    manifest={'version':VERSION,'build_revision':'OB6-E2-F4','source_commit':git_sha,'working_tree_dirty':dirty,'platform':platform_info,'dependencies':versions,'resource_manifest':'_internal/'+MANIFEST}
     (package/'BUILD_INFO.json').write_text(json.dumps(manifest,indent=2),encoding='utf-8')
-    (package/'CANDIDATE_NOTES.md').write_bytes((ROOT/'docs/PRERELEASE_0_5_0_RC2.md').read_bytes())
+    # Reproduce actual third-party notices without collecting environment or
+    # installation metadata (direct_url, credentials, paths, etc.).
+    license_code="import importlib.metadata as m,json; names=['pywebview','pythonnet','PyInstaller','httpx','clr_loader']; print(json.dumps({n:{str(f):m.distribution(n).locate_file(f).read_text(encoding='utf-8') for f in m.distribution(n).files or [] if '.dist-info' in str(f) and any(k in f.name.lower() for k in ['license','copying'])} for n in names}))"
+    notices=json.loads(subprocess.check_output([str(args.packaging_python),'-c',license_code],text=True,encoding='utf-8'))
+    if any(not value for value in notices.values()):raise RuntimeError('Missing required Python dependency license')
+    for name,filename in [('react','LICENSE'),('react-dom','LICENSE'),('vite','LICENSE.md'),('tailwindcss','LICENSE'),('typescript','LICENSE')]:
+        notices[name]={filename:(ROOT/'frontend/node_modules'/name/filename).read_text(encoding='utf-8')}
+    (package/'THIRD_PARTY_NOTICES.json').write_text(json.dumps(notices,ensure_ascii=False,indent=2),encoding='utf-8')
+    (package/'CANDIDATE_NOTES.md').write_bytes((ROOT/'docs/PRERELEASE_0_5_0_RC3.md').read_bytes())
     (package/'README.txt').write_text(
         'ErYouToolbox '+VERSION+' Windows x64 portable candidate\n'
         'Extract the whole folder, then double-click ErYouToolbox.exe. Requires Microsoft Edge WebView2 Evergreen Runtime.\n'

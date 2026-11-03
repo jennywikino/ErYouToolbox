@@ -123,9 +123,9 @@ class EnrichmentTests(unittest.TestCase):
         report={'format':'eryoutoolbox-rating-audit-v1','observed_at':'2020-01-01T00:00:00Z','samples':[{'source':'gamebanana','item_type':'Mod','item_id':1,'http_status':200,'detail':{'_bHasContentRatings':False}}]}
         with closing(sqlite3.connect(self.db)) as c:self.assertEqual(save_verified_samples(c,report)['candidates'],0)
         api=ReadOnlyAPI(self.db,runtime_root=self.root)
-        self.assertEqual(api.get('/api/mods?ratings=pn,sc')[1]['total_count'],2)
-        self.assertEqual(api.get('/api/mods?ratings=-')[1]['total_count'],1)
-        self.assertEqual(api.get('/api/mods?ratings=UNKNOWN')[1]['total_count'],0)
+        self.assertEqual(api.get('/api/mods?ratings=pn,sc')[1]['total_count'],3)
+        self.assertEqual(api.get('/api/mods?ratings=-')[1]['total_count'],3)
+        self.assertEqual(api.get('/api/mods?ratings=UNKNOWN')[1]['total_count'],3)
 
     def test_conservative_image_policy_and_explicit_preferences(self):
         risky={'source_ratings':{'codes':['pn']},'content_rating_status':'UNKNOWN'}
@@ -137,34 +137,26 @@ class EnrichmentTests(unittest.TestCase):
         self.assertFalse(preview_allowed({'source_ratings':{'codes':['st','rp']}},True))
         self.assertTrue(preview_allowed({'source_ratings':{'codes':['rp']}},True,False,True))
 
-    def test_http_origin_busy_task_and_success(self):
+    def test_http_retired_job_rejects_and_preserves_origin_guard(self):
         from desktop_app import create_server
         server,api,_=create_server(self.root,self.db)
         thread=threading.Thread(target=server.serve_forever);thread.start()
-        entered=threading.Event();release=threading.Event()
-        def get(url):entered.set();release.wait(5);return response(url)
-        self.client.get.side_effect=get
+        before=self.db.read_bytes()
         def request(body=None,origin=None):
             c=http.client.HTTPConnection('127.0.0.1',server.server_port,timeout=5)
             headers={'Origin':origin or f'http://127.0.0.1:{server.server_port}','Content-Type':'application/json','X-ErYouToolbox':'1'}
             try:
                 c.request('POST' if body is not None else 'GET','/api/rating-enrichment',json.dumps(body) if body is not None else None,headers)
-                r=c.getresponse();raw=r.read();return r.status,json.loads(raw) if r.status!=403 else None
+                r=c.getresponse();r.read();return r.status
             finally:c.close()
         try:
             with patch('rating_enrichment.httpx.Client') as factory:
-                factory.return_value.__enter__.return_value=self.client
-                self.assertEqual(request({'action':'run'},origin='https://evil.example')[0],403)
-                self.assertEqual(request({'action':'run','apply':True})[0],200);self.assertTrue(entered.wait(3))
-                self.assertEqual(request({'action':'run'})[0],400)
-                release.set()
-                for _ in range(300):
-                    status,value=request()
-                    if not value['running']:break
-                    time.sleep(.01)
-                self.assertFalse(value['running']);self.assertEqual(value['totals']['updated'],1)
-        finally:
-            release.set();server.shutdown();server.server_close();thread.join()
+                self.assertEqual(request({'action':'run'},origin='https://evil.example'),403)
+                self.assertEqual(request({'action':'run','apply':True}),400)
+                self.assertEqual(request(),410)
+                factory.assert_not_called()
+            self.assertEqual(self.db.read_bytes(),before)
+        finally:server.shutdown();server.server_close();thread.join()
 
     def test_newer_detail_evidence_replaces_old_and_survives_reopen(self):
         self.run_batch(apply=True)

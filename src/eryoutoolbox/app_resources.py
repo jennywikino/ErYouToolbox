@@ -8,7 +8,7 @@ from urllib.parse import urlsplit, unquote
 
 FORMAT = 'eryoutoolbox-resources-v1'
 MANIFEST = 'RESOURCE_MANIFEST.json'
-CONFIGS = ('config/games.json', 'config/content_ratings.json')
+CONFIGS = ('config/games.json',)
 
 
 def development_root():
@@ -45,13 +45,9 @@ def inventory(root):
         if not (root/name).is_file():
             raise ValueError(f'Missing application resource: {root/name}')
     games = json.loads((root/CONFIGS[0]).read_text(encoding='utf-8'))
-    ratings = json.loads((root/CONFIGS[1]).read_text(encoding='utf-8'))
     ids = [g.get('game_id') for g in games.get('games', [])]
     if not ids or any(type(i) is not int or i <= 0 for i in ids) or len(ids) != len(set(ids)):
         raise ValueError(f'Invalid games configuration: {root/CONFIGS[0]}')
-    codes = [option.get('_sAlias') for option in ratings.get('options', [])]
-    if not codes or any(not isinstance(c, str) or not c for c in codes) or not {'UNKNOWN', '-'} <= set(codes):
-        raise ValueError(f'Invalid content ratings configuration: {root/CONFIGS[1]}')
     references = _References()
     references.feed((root/'frontend/dist/index.html').read_text(encoding='utf-8'))
     if not references.paths or not any(p.endswith('.js') for p in references.paths):

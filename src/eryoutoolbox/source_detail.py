@@ -25,6 +25,9 @@ class PlainText(HTMLParser):
 def summary(record):
     metrics={label:record[key] for label,key in [('likes','_nLikeCount'),('views','_nViewCount'),('downloads','_nDownloadCount'),('comments','_nPostCount')]
              if type(record.get(key)) is int and record[key]>=0}
+    saved=record.get('metrics')
+    if isinstance(saved,dict):
+        metrics.update({k:v for k,v in saved.items() if k in ('likes','views','downloads','comments') and type(v) is int and v>=0})
     parser=PlainText();parser.feed(record.get('_sText','') if isinstance(record.get('_sText'),str) else '')
     files=[]
     for f in record.get('_aFiles',[]) if isinstance(record.get('_aFiles'),list) else []:
