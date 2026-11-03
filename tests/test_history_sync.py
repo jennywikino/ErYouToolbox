@@ -312,6 +312,7 @@ class HistoryTests(unittest.TestCase):
         from react_api import ReadOnlyAPI,make_handler
         api=ReadOnlyAPI(self.db)
         api.auto_sync=AutoSync(self.root,self.db,self.games,state_dir=self.root/'device')
+        api.history_sync=api.auto_sync.history()
         api.auto_sync.configure({**AUTO_DEFAULTS,'mode':'check'})
         server=ThreadingHTTPServer(('127.0.0.1',0),make_handler(api,0));port=server.server_address[1]
         server.RequestHandlerClass=make_handler(api,port)

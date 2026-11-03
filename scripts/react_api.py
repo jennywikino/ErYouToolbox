@@ -55,8 +55,9 @@ class ReadOnlyAPI:
         self.web_sync = WebSync(database, local_root, self.games)
         self.auto_sync=AutoSync(local_root,database,self.games,state_dir=None if local_root==ROOT else local_root/'logs/auto_sync')
         self.source_detail=SourceDetail()
+        self.history_sync=self.auto_sync.history()
         self.cache=CacheManagement(local_root,POPULAR,self.source_detail,
-                                   busy=lambda:self.web_sync.worker_active or self.auto_sync.running.locked())
+                                   busy=lambda:self.web_sync.worker_active or self.auto_sync.running.locked() or self.history_sync.running.locked())
 
     @staticmethod
     def number(query, name, default, minimum, maximum):
@@ -111,7 +112,7 @@ class ReadOnlyAPI:
                                 if getattr(self, 'desktop', False) else task_status(self.auto_sync.root,self.auto_sync.directory))
                 return 200,result
             if path.path == '/api/history-sync':
-                return 200,self.auto_sync.history().status()
+                return 200,self.history_sync.status()
             if path.path == '/api/sync':
                 return 200,self.web_sync.view()
             if path.path == '/api/read-state':
@@ -242,7 +243,7 @@ def make_handler(api: ReadOnlyAPI, port: int):
                 elif self.path == '/api/auto-sync':
                     result=api.auto_sync.configure(body)
                 elif self.path == '/api/history-sync':
-                    history=api.auto_sync.history()
+                    history=api.history_sync
                     if body=={'action':'continue'}:
                         if api.web_sync.worker_active or api.auto_sync.running.locked():raise ValueError('Another sync task is active')
                         if (history.status().get('last_run') or {}).get('status')=='checking':raise ValueError('Historical scan already running')

@@ -126,5 +126,13 @@ class CleanupTests(unittest.TestCase):
   auto=AutoSync(self.root,self.db,[game],state_dir=self.root/'device');auto.configure({**DEFAULTS,'mode':'apply'})
   with patch('web_sync.collect_game') as call:
    self.assertEqual(auto.run(force=True)['status'],'cooldown');call.assert_not_called()
+ def test_queued_history_job_is_visible_before_it_takes_the_source_lock(self):
+  api=ReadOnlyAPI(self.db,runtime_root=self.root)
+  api.history_sync.running.acquire()
+  try:
+   self.assertTrue(api.history_sync.running.locked())
+   with self.assertRaisesRegex(ValueError,'active'):api.cache.command({'action':'preview','categories':['memory']})
+   self.assertEqual(api.history_sync.launch(manual=True)['status'],'already_running')
+  finally:api.history_sync.running.release()
 
 if __name__=='__main__':unittest.main()

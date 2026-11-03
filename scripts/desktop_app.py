@@ -244,7 +244,7 @@ def main():
                 with server.lifecycle_lock:
                     closing.set()
                     try:
-                        if api.web_sync.worker_active or api.auto_sync.running.locked():
+                        if api.web_sync.worker_active or api.auto_sync.running.locked() or api.history_sync.running.locked():
                             raise RuntimeError('A sync is running')
                         with instance_lock(root/'logs/content_ratings/instance.lock'):
                             pass
@@ -281,7 +281,7 @@ def main():
             finally:
                 closing.set()
                 api.web_sync.cancel.set()
-                while api.web_sync.worker_active or api.auto_sync.running.locked():
+                while api.web_sync.worker_active or api.auto_sync.running.locked() or api.history_sync.running.locked():
                     time.sleep(0.2)
                 server.shutdown()
                 server.server_close()

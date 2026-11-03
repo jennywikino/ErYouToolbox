@@ -53,7 +53,7 @@ pywebview 官方支持 storage_path；本轮明确指定可移动 userdata/cache
 
 ## F4-E：验收与已知限制
 
-已通过关联测试：缓存/90天专项14项、桌面17项、历史评级兼容13项、历史扫描33项、查询/接口专项及前端16项/生产构建。统一冷却修复后最终全量Python484/484通过（170.239秒），前端16/16及生产构建通过；证据 F4-python-cooldown-final.txt、F4-frontend.txt、F4-build.txt。旧测试按退役功能及日期回退的新语义更新，未删除失败用例；失败日志保留。
+已通过关联测试：缓存/90天专项15项、桌面17项、历史评级兼容13项、历史扫描33项、查询/接口专项及前端16项/生产构建。统一冷却及历史生命周期保护后最终全量Python485/485通过（816.345秒），前端16/16及生产构建通过；证据 F4-python-accepted.txt、F4-frontend.txt、F4-build.txt。旧测试按退役功能及日期回退的新语义更新，未删除失败用例；失败日志保留。
 
 预检ZIP源码外中文/空格目录真实EXE通过：缺games/前端资源拒绝启动；不需评级配置；官方DiskCache清理成功；旧评级任务不可启动；首次授权off/3小时持久化；已阅/关注、返回/前进、目录移动/重启、异常退出、重复实例、不可写userdata与端口释放。0次测试网络，写入仅临时fixture库。初次错误对话框取证过早只读到按钮，已等待Static文本就绪后复验，未放松产品校验。
 
@@ -78,3 +78,51 @@ $python = Join-Path $env:LOCALAPPDATA 'ErYouToolbox\venv\Scripts\python.exe'
 官方依据：https://api.gamebanana.com/docs/endpoints/Core/List/New ，https://pywebview.flowrl.com/api/ ，https://learn.microsoft.com/en-us/dotnet/api/microsoft.web.webview2.core.corewebview2profile.clearbrowsingdataasync 。
 
 最终入口审查补齐较长Retry-After：手动/自动共用既有历史cooldown.json安全状态；等待至少来源要求的时间（无明确时间保守3小时），立即刷新不能绕过。新增24小时Retry-After回归，484项全量通过；保留先前483项成功和失败日志，未删除用例。
+
+关闭边界补充：API持有同一个HistorySync任务实例，桌面关闭/缓存管理同时检查其running锁，覆盖“任务已排队但尚未取得来源共享锁”的短暂状态。对应临时库回归验证不重复启动、不可危险清理；历史HTTP测试同步注入该受管理实例，未放松来源或事务校验。
+
+## 修改文件白名单（本轮共41个，含退役组件删除）
+
+- .gitignore
+- PROJECT_STATUS.md
+- README.md
+- docs/RELEASE_CHECKLIST.md
+- docs/OB6_E2_F4_RELEASE_CLEANUP.md
+- docs/PRERELEASE_0_5_0_RC3.md
+- frontend/package.json
+- frontend/src/App.tsx
+- frontend/src/AutomationConsent.tsx
+- frontend/src/HistorySyncSettings.tsx
+- frontend/src/ModDetail.tsx
+- frontend/src/PopularPanel.tsx
+- frontend/src/PreviewCard.tsx
+- frontend/src/RatingEnrichment.tsx
+- frontend/src/RelatedMods.tsx
+- frontend/src/SyncCheck.tsx
+- frontend/src/policy.test.ts
+- frontend/src/policy.ts
+- frontend/src/styles.css
+- frontend/src/CacheSettings.tsx
+- scripts/auto_sync.py
+- scripts/build_desktop.py
+- scripts/desktop_app.py
+- scripts/history_sync.py
+- scripts/react_api.py
+- scripts/web_sync.py
+- src/eryoutoolbox/app_resources.py
+- src/eryoutoolbox/models.py
+- src/eryoutoolbox/source_detail.py
+- src/eryoutoolbox/ui_queries.py
+- src/eryoutoolbox/cache_management.py
+- tests/desktop_isolation_check.py
+- tests/test_app_resources.py
+- tests/test_auto_sync.py
+- tests/test_content_ratings.py
+- tests/test_desktop.py
+- tests/test_history_sync.py
+- tests/test_rating_enrichment.py
+- tests/test_react_api.py
+- tests/test_subscriptions.py
+- tests/test_f4_cleanup.py
+
+最终生命周期复验：历史HTTP旧测试注入修正后，完整485/485通过、0失败、0跳过。此前485项中的1项失败为临时实例注入不一致，原日志F4-python-delivery.txt保留；并非删除或跳过用例。最终交付只使用delivery目录中的干净源码包，中间preflight/final/verified包不作为本轮交付。
