@@ -28,7 +28,7 @@
 
 **注意：** 关闭客户端后不会后台同步。更新软件时请保留 `userdata/`，不要用新包覆盖个人数据。
 
-**验收状态（2026-11-03）：** 开发机Windows11已验证空库创建及一次GameBanana预览；缺少WebView2的模拟测试2项通过，提示含[官方安装链接](https://developer.microsoft.com/microsoft-edge/webview2/)，不自动安装。环境审计中的退出异常已保留原证据；F6修复通过独立解压联网20条预览后关闭、重启和锁/端口释放预验收。**干净Windows10/11实机或虚拟机尚未验收，不能宣称全面兼容，Release仍待人工确认。** 详见[环境审计](docs/RELEASE_ENVIRONMENT_AUDIT.md)与[关闭修复报告](docs/OB6_E2_F6_SHUTDOWN_FIX.md)。
+**验收状态（2026-11-03）：** 开发机Windows11已验证空库创建及一次GameBanana预览；缺少WebView2的模拟测试2项通过，提示含[官方安装链接](https://developer.microsoft.com/microsoft-edge/webview2/)，不自动安装。环境审计中的退出异常已保留原证据；F6修复通过最终候选ZIP独立解压联网20条预览后关闭、重启和锁/端口释放验收。**干净Windows10/11实机或虚拟机尚未验收，不能宣称全面兼容，Release仍待人工确认。** 详见[环境审计](docs/RELEASE_ENVIRONMENT_AUDIT.md)与[关闭修复报告](docs/OB6_E2_F6_SHUTDOWN_FIX.md)。
 
 ### 源码与文档
 

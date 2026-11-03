@@ -55,3 +55,14 @@ $python = Join-Path $env:LOCALAPPDATA 'ErYouToolbox\venv\Scripts\python.exe'
 干净Windows10/11、物理E/F迁移仍需人工实测；不因本轮关闭通过就宣称Release兼容完成。不修改Windows任务、不自动创建tag/Release，不执行生产apply。最终源码提交、推送状态与ZIP散列见本轮交付。
 
 最终交付目录：`dist/desktop-0.5.0-rc3-F6-delivery`；干净提交的最终ZIP仍须执行tests/desktop_shutdown_check.py和原desktop_isolation_check.py，记录F6-final-native.json/F6-final-isolation.json。实际构建SHA、ZIP SHA-256、Git远端状态与生产指纹复验统一保存在本轮交付清单，不将预构建散列冒充最终包。
+
+## 最终候选验收（实际执行）
+
+- 最终ZIP：dist/desktop-0.5.0-rc3-F6-delivery/ErYouToolbox-0.5.0-rc3-win-x64.zip。
+- SHA-256：4ede58bf14e93d3d015f789a16d9ab9c103059623a1a69d8dfc388a16565758b。
+- 实际干净构建源码：ce6976047a96dd0541b503ff092685f82254096d，BUILD_INFO为OB6-E2-F6。其后仅归档本段等文档，不改变包内代码。
+- F6-final-native.json：PASS，源码外新目录，10次正常退出均0，真实单页20条预览后关闭3.16秒、重启再关闭3.60秒；每轮端口重绑/锁重取/SQLite integrity与外键检查通过。完整桌面隔离F6-final-isolation.json另在独立目录PASS，无真实来源请求。
+- 最后关闭日志显示HTTP排空、窗口destroy返回、main_cleanup仅MainThread，随后desktop_lock_released。测试代码另模拟一次异常终止用于恢复验收，不能计作正常退出。
+- 本轮真实来源总计4次单页HTTP请求：源码诊断1、冻结诊断1、预验收1、最终包1；均仅原神预览，零confirm。所有失败日志及历史包保留。
+- 开发正式库1097条及指定旧便携943条的SHA-256与任务前一致；个人正式数据零写入。新包无userdata、SQLite、日志、备份或凭据；资源/图标/依赖检查通过。
+- Python504/504、前端16/16和TypeScript/Vite构建通过。关闭修复本地候选PASS；干净Windows10/11兼容Release仍BLOCK。未创建tag/Release。
