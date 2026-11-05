@@ -21,6 +21,8 @@ class ResourceTests(unittest.TestCase):
         self.tmp=tempfile.TemporaryDirectory()
         self.root=Path(self.tmp.name)/'独立 bundle'
         (self.root/'config').mkdir(parents=True)
+        (self.root/'eryoutoolbox').mkdir()
+        shutil.copyfile(ROOT/'src/eryoutoolbox/character_aliases.json',self.root/'eryoutoolbox/character_aliases.json')
         for name in ('games.json','content_ratings.json'):
             shutil.copyfile(ROOT/'config'/name,self.root/'config'/name)
         (self.root/'frontend/dist/assets').mkdir(parents=True)
@@ -59,6 +61,15 @@ class ResourceTests(unittest.TestCase):
 
     def test_changed_asset_fails_hash_check(self):
         (self.root/'frontend/dist/assets/main.js').write_text('changed')
+        with self.assertRaisesRegex(ValueError,'integrity'):verify_resources(self.root,require_manifest=True)
+
+    def test_alias_json_missing_invalid_or_changed_is_rejected(self):
+        path=self.root/'eryoutoolbox/character_aliases.json';original=path.read_bytes()
+        path.unlink()
+        with self.assertRaisesRegex(ValueError,'Missing application resource'):verify_resources(self.root,require_manifest=True)
+        path.write_text('{"format":99,"games":{}}')
+        with self.assertRaisesRegex(ValueError,'Invalid character index'):verify_resources(self.root,require_manifest=True)
+        path.write_bytes(original+b' ')
         with self.assertRaisesRegex(ValueError,'integrity'):verify_resources(self.root,require_manifest=True)
 
     def test_resource_paths_do_not_depend_on_cwd_or_userdata_config(self):

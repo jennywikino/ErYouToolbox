@@ -13,8 +13,14 @@ button, a { transition: background-color .16s, border-color .16s, box-shadow .16
 .icon-rail { position: fixed; inset: 0 auto 0 0; width: 76px; display: flex; flex-direction: column; align-items: center; gap: 18px; background: white; border-right: 1px solid #e9ebf2; z-index: 20; }
 .brand-mark { margin: 25px 0 17px; font-size: 31px; font-weight: 800; letter-spacing: -4px; color: #7653b6; }
 .brand-mark span { font-size: 17px; }
+.brand-mark { width:36px; height:36px; display:inline-flex; align-items:center; justify-content:center; overflow:hidden; flex-shrink:0; letter-spacing:normal; }
+.brand-mark img { display:block; width:36px; height:36px; object-fit:contain; flex-shrink:0; }
 .rail-button { height: 42px; width: 42px; display: grid; place-items: center; border-radius: 12px; color: #8991a1; }
 .rail-button:hover, .rail-button.active { background: #f0eafa; color: #7754b1; }
+.game-rail-buttons { display: flex; flex-direction: column; align-items: center; gap: 7px; min-height: 0; overflow-y: auto; width: 100%; padding: 4px 0; }
+.game-rail-buttons .rail-button { flex-shrink: 0; border: 0; cursor: pointer; font-size: 12px; font-weight: 700; }
+.game-rail-buttons .rail-button:focus-visible { outline: 2px solid #7754b1; outline-offset: 2px; }
+.icon-rail > .brand-mark, .icon-rail > span { flex-shrink: 0; }
 .app-body { margin-left: 76px; width: calc(100% - 76px); }
 .topbar { min-height: 78px; padding: 18px 32px; border-bottom: 1px solid #e9ebf2; background: white; display: flex; align-items: center; justify-content: space-between; gap: 20px; }
 .game-select { max-width: 230px; padding: 9px 28px 9px 12px; border: 1px solid #e3e6ee; background: white; border-radius: 8px; font-size: 13px; font-weight: 600; }

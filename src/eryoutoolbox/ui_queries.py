@@ -9,6 +9,7 @@ from typing import Any
 from urllib.parse import unquote, urlsplit
 
 from .content_ratings import source_ratings, rating_matches
+from .character_aliases import alias_groups
 
 SORT_COLUMNS = {
     "first_seen": "m.first_seen_at",
@@ -157,7 +158,8 @@ def query_mods(database_path: str | Path, *, game_id: int | None = None,
                require_updated: bool = False, subscriptions_only: bool = False,
                read_filter: str = 'all', author_source: str | None = None,
                author_id: int | None = None, exclude_item_id: int | None = None,
-               category: str | None = None, subcategory: str | None = None) -> dict[str, Any]:
+               category: str | None = None, subcategory: str | None = None,
+               character_index: dict | None = None) -> dict[str, Any]:
     if sort not in SORT_COLUMNS:
         raise ValueError("Unsupported MOD sort option.")
     if limit < 1 or offset < 0:
@@ -182,9 +184,16 @@ def query_mods(database_path: str | Path, *, game_id: int | None = None,
         parameters.append(game_id)
     search = search.strip()
     if search:
-        search_clause = "(LOWER(COALESCE(m.title, '')) LIKE LOWER(?) OR LOWER(COALESCE(m.author_name, '')) LIKE LOWER(?)"
+        fields=('title','author_name','category','subcategory')
+        def text_match():
+            return '('+' OR '.join(f"LOWER(COALESCE(m.{field}, '')) LIKE LOWER(?)" for field in fields)+')'
+        search_clause = '('+text_match()
         like = f"%{search}%"
-        parameters.extend((like, like))
+        parameters.extend([like]*len(fields))
+        for gid,aliases in alias_groups(search,game_id,character_index):
+            search_clause += ' OR (m.game_id=? AND ('+' OR '.join(text_match() for _ in aliases)+'))'
+            parameters.append(gid)
+            for alias in aliases:parameters.extend([f'%{alias}%']*len(fields))
         if search.isdecimal() and len(search) <= 19 and int(search) <= 9223372036854775807:
             search_clause += " OR m.item_id = ?"
             parameters.append(int(search))
@@ -234,7 +243,11 @@ def query_mods(database_path: str | Path, *, game_id: int | None = None,
                 continue
             item["content_rating_status"] = item.get("content_rating_status") or "UNKNOWN"
             items.append(item)
-        return {"total_count": total, "items": items}
+        unfiltered=total
+        if search and total==0 and (category or subcategory or author_id is not None or require_preview or require_updated or subscriptions_only or read_filter!='all'):
+            unfiltered=query_mods(database_path,game_id=game_id,search=search,limit=1,character_index=character_index)['total_count']
+        return {"total_count": total, "items": items,
+                "search_info":{"alias_known":bool(alias_groups(search,game_id,character_index)),"unfiltered_count":unfiltered}}
     except sqlite3.Error as exc:
         raise DatabaseReadError(f"Database query failed: {exc}") from exc
     finally:

@@ -27,6 +27,7 @@ from auto_sync import AutoSync
 from manage_auto_sync import task_status
 from eryoutoolbox.source_detail import SourceDetail
 from eryoutoolbox.cache_management import CacheManagement
+from eryoutoolbox.character_library import CharacterLibrary
 POPULAR = PopularClient()
 
 def author_summary(report):
@@ -52,6 +53,7 @@ class ReadOnlyAPI:
         self.games = json.loads((games_path or config_root/'config/games.json').read_text(encoding="utf-8"))["games"]
         local_root=runtime_root if runtime_root is not None else (ROOT if database.resolve().is_relative_to(ROOT) else database.parent)
         self.runtime_root = local_root
+        self.character_library = CharacterLibrary(local_root)
         self.web_sync = WebSync(database, local_root, self.games)
         self.auto_sync=AutoSync(local_root,database,self.games,state_dir=None if local_root==ROOT else local_root/'logs/auto_sync')
         self.source_detail=SourceDetail()
@@ -87,6 +89,7 @@ class ReadOnlyAPI:
         show_sensitive = query.get('show_sensitive',['0'])[0]=='1'
         show_unknown = query.get('show_unknown_preview',['0'])[0]=='1'
         try:
+            if path.path=='/api/character-library':return 200,self.character_library.status()
             if path.path=='/api/cache':return 200,self.cache.status()
             if path.path=='/api/rating-enrichment':
                 return 410,{'error':'Content rating enrichment has been retired'}
@@ -156,6 +159,7 @@ class ReadOnlyAPI:
                 codes = None  # Ignore pre-rc3 bookmarked rating filters.
                 result = query_mods(
                     self.database, game_id=game_id,
+                    character_index=self.character_library.effective(),
                     author_source=query.get('author_source',[None])[0],
                     author_id=self.number(query,'author_id',0,1,2**63-1) if query.get('author_id') else None,
                     exclude_item_id=self.number(query,'exclude_id',0,1,2**63-1) if query.get('exclude_id') else None,
@@ -229,15 +233,16 @@ class ReadOnlyAPI:
 def make_handler(api: ReadOnlyAPI, port: int):
     class Handler(BaseHTTPRequestHandler):
         def do_POST(self):
-            if self.path not in ('/api/cache','/api/subscription','/api/author-updates','/api/read-state','/api/sync','/api/auto-sync','/api/auto-sync/run','/api/auto-sync/startup','/api/history-sync','/api/rating-enrichment') or not valid_write_origin(self.headers,port) or self.headers.get('Transfer-Encoding'):
+            if self.path not in ('/api/character-library','/api/cache','/api/subscription','/api/author-updates','/api/read-state','/api/sync','/api/auto-sync','/api/auto-sync/run','/api/auto-sync/startup','/api/auto-sync/refresh','/api/history-sync','/api/rating-enrichment') or not valid_write_origin(self.headers,port) or self.headers.get('Transfer-Encoding'):
                 self.send_error(403)
                 return
             try:
                 length = int(self.headers.get('Content-Length','0'))
-                if not 0<length<=2048:
+                if not 0<length<=(600*1024 if self.path=='/api/character-library' else 2048):
                     raise ValueError('Invalid request size')
                 body = json.loads(self.rfile.read(length))
-                if self.path=='/api/cache':result=api.cache.command(body)
+                if self.path=='/api/character-library':result=api.character_library.command(body)
+                elif self.path=='/api/cache':result=api.cache.command(body)
                 elif self.path == '/api/rating-enrichment':
                     raise ValueError('Content rating enrichment has been retired')
                 elif self.path == '/api/auto-sync':
@@ -253,12 +258,16 @@ def make_handler(api: ReadOnlyAPI, port: int):
                     elif body=={'action':'run'}:result=history.launch(manual=True)
                     elif isinstance(body,dict) and set(body)=={'action','settings'} and body['action']=='configure':result=history.configure(body['settings'])
                     else:raise ValueError('Invalid historical scan action')
+                elif self.path=='/api/auto-sync/refresh':
+                    if not isinstance(body,dict) or set(body)-{'game'}:raise ValueError('Invalid refresh request')
+                    result=api.auto_sync.browser_launch(game=body.get('game'))
                 elif self.path in ('/api/auto-sync/run','/api/auto-sync/startup'):
                     if body=={'action':'stop'}:
                         result=api.auto_sync.stop()
                         raw=json.dumps(result).encode('utf-8');self.send_response(200);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(raw)));self.end_headers();self.wfile.write(raw);return
                     if body!={}:raise ValueError('Invalid automatic run request')
-                    result=api.auto_sync.launch(startup=self.path.endswith('/startup'))
+                    result=(api.auto_sync.browser_launch(startup=True) if self.path.endswith('/startup')
+                            else api.auto_sync.launch())
                 elif self.path == '/api/sync':
                     if not isinstance(body,dict):raise ValueError('Invalid request')
                     result=api.web_sync.start(body)
@@ -276,7 +285,7 @@ def make_handler(api: ReadOnlyAPI, port: int):
                 status = 200
             except (ValueError,TypeError) as exc:
                 status,result=400,{'error':str(exc)}
-            except (RuntimeError,sqlite3.Error,OSError) as exc:
+            except (RuntimeError,sqlite3.Error,OSError,httpx.HTTPError) as exc:
                 status,result=503,{'error':str(exc)}
             raw=json.dumps(result).encode('utf-8')
             self.send_response(status)

@@ -19,10 +19,10 @@ MAX_PAGES=10
 
 
 def recent_window(record, captured_at, days=90):
-    """Local discovery time and modified_at never establish source activity."""
+    """Modification admits discovery, but never establishes a source-update event."""
     from datetime import timedelta
     cutoff=parse_utc(captured_at)-timedelta(days=days)
-    dates=[parse_utc(record.get(key)) for key in ('created_at','updated_at')]
+    dates=[parse_utc(record.get(key)) for key in ('created_at','updated_at','modified_at')]
     dates=[value for value in dates if value is not None]
     if not dates:return 'missing_dates'
     return 'in_window' if any(cutoff<=value<=parse_utc(captured_at) for value in dates) else 'out_of_window'
@@ -47,6 +47,32 @@ def page_plan(frontier, budget):
     # Always refresh head and overlap the committed frontier; never assume no drift.
     if frontier<=1:return list(range(1,budget+1))
     return [1]+list(range(max(2,frontier),max(2,frontier)+budget-1))
+
+
+def automatic_candidates(connection,snapshots,metrics=None):
+    """Fast path only for automatic source changes, never for manual metadata import."""
+    selected=[]
+    for meta,records in snapshots:
+        rows=[]
+        for record in records:
+            started=time.perf_counter();gid=record['game_id']
+            measure=(metrics or {}).get(gid)
+            if measure is not None:
+                measure.setdefault('timestamp_skipped',0);measure.setdefault('selection_seconds',0.0)
+            try:
+                old=connection.execute('SELECT updated_at FROM mods WHERE source=? AND item_type=? AND item_id=?',
+                    (record['source'],record['item_type'],record['item_id'])).fetchone()
+                before=parse_utc(old['updated_at']) if old else None
+                after=parse_utc(record.get('updated_at'))
+                if before is not None and after is not None and after<=before:
+                    if measure is not None:measure['timestamp_skipped']+=1
+                    continue
+                comparison=import_samples(connection,[(meta,[record])],dry_run=True)
+                if comparison['inserted'] or comparison['source_update_events']:rows.append(record)
+            finally:
+                if measure is not None:measure['selection_seconds']+=time.perf_counter()-started
+        selected.append((meta,rows))
+    return selected
 
 class WebSync:
     def __init__(self,database,root,games):
@@ -149,7 +175,15 @@ class WebSync:
                 return dict(self.state)
             if self.state['status'] in ('checking','importing'):raise ValueError('A sync is already running')
             action=body.get('action')
-            if action in ('check','check_all','resume'):
+            if action=='lookup' and set(body)=={'action','game','item_id'}:
+                if self.state['status']=='waiting':raise ValueError('Confirm or discard the pending preview first')
+                self.check_cooldown()
+                game=next((g for g in self.games if type(body['game']) is int and g['game_id']==body['game']),None)
+                if not game or type(body['item_id']) is not int or not 0<body['item_id']<2**63:raise ValueError('Choose a supported game and valid MOD ID')
+                self.task_id=secrets.token_hex(16);self.cancel.clear();self.candidate=None
+                self.state={'status':'checking','game_id':game['game_id'],'lookup':True}
+                target,args=self.lookup,(game,body['item_id'])
+            elif action in ('check','check_all','resume'):
                 self.check_cooldown()
                 required={'action'} if action=='check_all' else {'action','game'}
                 if not required<=set(body) or set(body)-required-{'max_pages'}:raise ValueError('Invalid check request')
@@ -185,6 +219,31 @@ class WebSync:
 
     def check(self,game):self.check_games([game],20)
 
+    def lookup(self,game,item_id):
+        """Explicit exact detail -> existing confirmation/import pipeline, no cursor."""
+        c=readonly_connection(self.database)
+        try:
+            if c.execute("SELECT 1 FROM mods WHERE source='gamebanana' AND item_type='Mod' AND item_id=?",(item_id,)).fetchone():
+                raise ValueError('MOD already stored locally; clear game/category/read/image filters to find it')
+        finally:c.close()
+        from eryoutoolbox.source_detail import SourceDetail
+        if not hasattr(self,'lookup_detail'):self.lookup_detail=SourceDetail()
+        record=self.lookup_detail.fetch(item_id,game)
+        if record.get('source')!='gamebanana' or record.get('item_type')!='Mod' or record.get('item_id')!=item_id or record.get('game_id')!=game['game_id']:raise ValueError('Source detail identity mismatch')
+        if self.cancel.is_set():raise ValueError('Lookup stopped')
+        captured=utc();snapshots=[({'captured_at':parse_utc(captured)},[record])]
+        c=readonly_connection(self.database)
+        try:
+            c.execute('BEGIN');baseline=fingerprint(c)
+            generation=c.execute('SELECT COALESCE(MAX(run_id),0) FROM sync_runs').fetchone()[0]
+            report=import_samples(c,snapshots,dry_run=True)
+        finally:c.close()
+        result={'collected_at':captured,'records':[record],'failure_reasons':[],'actual_record_count':1,'request_count':1}
+        with self.mutex:
+            self.candidate={'snapshots':snapshots,'baseline':baseline,'sync_generation':generation,'created':time.time(),'result':result,'task_id':self.task_id}
+            self.state={'status':'waiting','lookup':True,'lookup_record':{k:record.get(k) for k in ('item_id','title','author_name','game_name','created_at','updated_at','modified_at','original_url')},'game_id':game['game_id'],'games':[],'token':secrets.token_urlsafe(32),'scanned':1,'requests':1,'report':report,'coverage':'incomplete'}
+        self.save()
+
     def check_games(self,games,per_page=10,max_pages=3,resume=False,window_days=None):
         self.check_cooldown()
         if not 1<=len(games)<=6 or type(max_pages) is not int or not 1<=max_pages<=MAX_PAGES:raise ValueError('Bounded games/pages required')
@@ -199,7 +258,8 @@ class WebSync:
                 plan=page_plan(frontier,max_pages)
                 summary={'game_id':game['game_id'],'name':game['name'],'status':'skipped','scanned':0,'requests':0,
                          'failures':[],'pages':[],'planned_pages':plan,'coverage':'incomplete','checkpoint':cp,
-                         'frontier':frontier,'per_page':per_page,'known_ids':[],'newest_known':{},'page_duplicates':0,'scan_status':'awaiting_resume'}
+                         'frontier':frontier,'per_page':per_page,'known_ids':[],'newest_known':{},'page_duplicates':0,'scan_status':'awaiting_resume',
+                         'network_seconds':0.0,'selection_seconds':0.0,'timestamp_skipped':0,'batch_import_seconds_shared':None}
                 summary.update(window_days=window_days,out_of_window=0,missing_dates=0,
                                pending_date_ids=list(cp.get('pending_date_ids',[])))
                 summaries.append(summary)
@@ -210,7 +270,9 @@ class WebSync:
                     with self.mutex:self.state={**self.state,'current_game':game['name'],'current_page':page,'completed':len(summaries)-1,'games':summaries}
                     result=None
                     try:
-                        result=collect_game(client,game,max_pages=1,per_page=per_page,days=window_days or 30,sort='Generic_NewAndUpdated',start_page=page,max_requests=2,max_rate_wait=0)
+                        started=time.perf_counter()
+                        try:result=collect_game(client,game,max_pages=1,per_page=per_page,days=window_days or 30,sort='Generic_NewAndUpdated',start_page=page,max_requests=2,max_rate_wait=0)
+                        finally:summary['network_seconds']+=time.perf_counter()-started
                         summary['requests']+=result['request_count']
                         fetched=sum(p.get('returned_count',0) for p in result.get('pagination_pages',[])) if result.get('pagination_pages') else result['actual_record_count']
                         summary['scanned']+=fetched
@@ -329,21 +391,20 @@ class WebSync:
         try:
             snapshots=candidate['snapshots']
             if only_source_changes:
-                selected=[]
-                for meta,records in snapshots:
-                    rows=[]
-                    for record in records:
-                        comparison=import_samples(c,[(meta,[record])],dry_run=True)
-                        if comparison['inserted'] or comparison['source_update_events']:
-                            rows.append(record)
-                    selected.append((meta,rows))
-                snapshots=selected
+                snapshots=automatic_candidates(c,snapshots,{s['game_id']:s for s in self.state['games']})
             preview=import_samples(c,snapshots,dry_run=True)
-            report=import_samples(c,snapshots,dry_run=False,before_write=before,precondition=guard,
-                sync_run={'source':'gamebanana','game_id':self.state['game_id'],'started_at':result['collected_at'],'ended_at':utc(),
+            started=time.perf_counter()
+            try:
+                report=import_samples(c,snapshots,dry_run=False,before_write=before,precondition=guard,
+                    sync_run={'source':'gamebanana','game_id':self.state['game_id'],'started_at':result['collected_at'],'ended_at':utc(),
                           'status':'partial' if result['failure_reasons'] else 'success','request_count':result['request_count'],
                           'fetched_count':result['actual_record_count'],'deduplicated_count':preview['unique_records'],
-                          'errors':result['failure_reasons'],'web_sync':{'format':FORMAT,'task_id':candidate['task_id'],'checkpoints':checkpoints}})
+                              'errors':result['failure_reasons'],'web_sync':{'format':FORMAT,'task_id':candidate['task_id'],'checkpoints':checkpoints}})
+            finally:
+                elapsed=time.perf_counter()-started
+                with self.mutex:
+                    self.state['performance']={'batch_import_seconds':elapsed,'additional_detail_requests':0}
+                    for summary in self.state['games']:summary['batch_import_seconds_shared']=elapsed
         finally:c.close()
         with self.mutex:
             self.state={**self.state,'status':'partial' if result['failure_reasons'] else 'success','report':report,

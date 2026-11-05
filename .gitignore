@@ -86,6 +86,7 @@ tmp*/
 
 # Portable runtime is personal data, never source.
 userdata/
+reference/
 !docs/OB6_E2_DESKTOP_PACKAGE.md
 !docs/OB6_E2_F2_RATING_FIX.md
 !docs/OB6_E2_F3_NAHIDA_REFERENCE.md

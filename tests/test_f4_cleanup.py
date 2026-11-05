@@ -98,7 +98,7 @@ class CleanupTests(unittest.TestCase):
   self.assertEqual(api.get('/api/rating-enrichment')[0],410);self.assertEqual(api.get('/api/content-ratings')[0],410)
  def test_window_uses_source_release_or_update_not_modified(self):
   captured='2026-11-03T00:00:00Z'
-  for r,expected in [({'created_at':'2026-11-02T00:00:00Z'},'in_window'),({'created_at':'2025-01-01T00:00:00Z','updated_at':'2026-10-31T00:00:00Z'},'in_window'),({'created_at':'2025-01-01T00:00:00Z','modified_at':captured},'out_of_window'),({'modified_at':captured},'missing_dates'),({'updated_at':'invalid'},'missing_dates'),({'created_at':'2028-01-01T00:00:00Z'},'out_of_window')]:
+  for r,expected in [({'created_at':'2026-11-02T00:00:00Z'},'in_window'),({'created_at':'2025-01-01T00:00:00Z','updated_at':'2026-10-31T00:00:00Z'},'in_window'),({'created_at':'2025-01-01T00:00:00Z','modified_at':captured},'in_window'),({'modified_at':captured},'in_window'),({'updated_at':'invalid'},'missing_dates'),({'created_at':'2028-01-01T00:00:00Z'},'out_of_window')]:
    self.assertEqual(recent_window(r,captured),expected)
  def test_window_preview_counts_and_apply_idempotence(self):
   game={'game_id':8552,'name':'G'};service=WebSync(self.db,self.root,[game])

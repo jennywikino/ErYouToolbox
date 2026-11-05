@@ -20,6 +20,7 @@ export interface Mod {
   preview_images?: Preview[]; image_count: number; tags?: string[]; description?: string | null
 }
 export interface ModPage {
+  search_info?: {alias_known:boolean;unfiltered_count:number}
   items: Mod[]; total_count: number; limit: number; offset: number
   discovery?: {local_count: number; game_id: number | null; coverage: 'unverified';
     last_sync: {source: string; game_id: number | null; started_at: string; ended_at: string | null; status: string} | null}

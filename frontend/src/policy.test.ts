@@ -1,18 +1,47 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {listingPreferences,resizedPage,cardPreviewUrl,sourceUpdateDate,dateLabel} from './policy.ts'
-import {createStartupRequest,requestDueCheck} from './autoStartup.ts'
+import {createStartupRequest} from './autoStartup.ts'
+import {globalSearchContext} from './policy.ts'
+import {gameBananaModId} from './policy.ts'
+import {syncFailureCount} from './policy.ts'
 
-test('periodic due checks preserve off, future, running, pending and saved mode',async()=>{
- for(const [mode,due,status,posts] of [['off',0,'success',0],['check',1001,'success',0],['apply',0,'checking',0],['apply',0,'manual_preview_pending',0],['check',0,'success',1],['apply',0,'success',1]] as const){
-  let count=0
-  const request=(async (_url:RequestInfo|URL,init?:RequestInit)=>{if(init)count++;return new Response(JSON.stringify(init?{status:'requested'}:{settings:{mode},next_due:new Date(due).toISOString(),last_run:{status}}))}) as typeof fetch
-  await requestDueCheck(request,1000);assert.equal(count,posts)
- }
+test('sync failures include author pending items and legacy failed reports',()=>{
+ assert.equal(syncFailureCount({status:'success',failures:[]}),0)
+ assert.equal(syncFailureCount({status:'partial',failures:[],authors:{status:'partial',pending_count:2}}),2)
+ assert.equal(syncFailureCount({status:'failed',failures:[],error:'backup failed'}),1)
+ assert.equal(syncFailureCount({status:'partial',failure_count:3,failures:[{}]}),3)
+})
+
+test('manual import accepts official MOD links or IDs and rejects unsafe addresses',()=>{
+ for(const text of ['541855',' https://gamebanana.com/mods/541855 ','https://www.gamebanana.com/mods/541855/?x=1#comments'])assert.equal(gameBananaModId(text),541855)
+ for(const text of ['0','-1','1.2','9007199254740993','javascript:alert(1)','https://gamebanana.com.evil.test/mods/1','https://user@gamebanana.com/mods/1','https://gamebanana.com/members/1','https://gamebanana.com:444/mods/1'])assert.equal(gameBananaModId(text),null)
+})
+
+test('unconfigured startup delegates one-shot import to the server once',async()=>{
+ let posts=0
+ const request=(async (_url:RequestInfo|URL,init?:RequestInit)=>{if(init)posts++;return new Response(JSON.stringify(init?{status:'requested'}:{configured:false,settings:{mode:'off'}}))}) as typeof fetch
+ const start=createStartupRequest(request)
+ await Promise.all([start(),start()]);assert.equal(posts,1)
+ await start();assert.equal(posts,1)
+})
+
+test('global search clears stale Jane Doe context and retains game and personal preferences',()=>{
+ const result=globalSearchContext({game:'8552',draft:' 胡桃 ',category:'Skins',subcategory:'Jane Doe',author:{author_id:1},page:4,readFilter:'unread',pageSize:25,viewMode:'compact'})
+ assert.equal(result.search,'胡桃');assert.equal(result.category,'');assert.equal(result.subcategory,'');assert.equal(result.author,null);assert.equal(result.page,0)
+ assert.equal(result.game,'8552');assert.equal(result.readFilter,'unread');assert.equal(result.pageSize,25);assert.equal(result.viewMode,'compact')
+})
+
+test('navigation and repeated startup calls never schedule another document scan',async()=>{
+ let count=0
+ const request=(async (_url:RequestInfo|URL,init?:RequestInit)=>{if(init)count++;return new Response(JSON.stringify(init?{status:'requested'}:{settings:{mode:'off'}}))}) as typeof fetch
+ const start=createStartupRequest(request)
+ for(const game of ['8552','18366','19567','20357','21842','23012']){void game;await start()}
+ await Promise.all([start(),start()]);assert.equal(count,1)
 })
 import { canShowImages, imageIndex, safeUrl, discoveryTime, syncTimeLabel, syncStatusLabel, subscriptionActivity, restoreScrollTop, restorePopularView, validBrowseSnapshot } from './policy.ts'
 
-test('startup is once per document, off skips launch, enabled delegates due checks to server', async () => {
+test('startup is once per document, legacy modes do not suppress the one-shot import', async () => {
   for(const mode of ['off','check','apply']){
     const calls: {url:string;init?:RequestInit}[]=[]
     const start=createStartupRequest((async (url:RequestInfo|URL,init?:RequestInit)=>{
@@ -20,8 +49,8 @@ test('startup is once per document, off skips launch, enabled delegates due chec
       return new Response(JSON.stringify(init?{status:'requested'}:{settings:{mode}}),{status:200})
     }) as typeof fetch)
     const first=start();assert.equal(first,start());await Promise.all([first,start()])
-    assert.equal(calls.length,mode==='off'?1:2)
-    if(mode!=='off'){
+    assert.equal(calls.length,2)
+    {
       assert.equal(calls[1].url,'/api/auto-sync/startup')
       assert.equal(calls[1].init?.body,'{}') // Never forces or changes saved mode.
     }

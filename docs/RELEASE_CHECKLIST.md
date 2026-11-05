@@ -2,6 +2,27 @@
 
 Target: 0.5.0-rc3. A local candidate is not a formal release.
 
+## CLOSE-2 最终本地候选（2026-11-04，PARTIAL）
+
+- [x] 第一轮修复显式收集角色JSON并纳入资源散列清单，资源9项/角色7项针对性测试通过；未重复518项完整回归。
+- [x] 全新Windows x64 onedir ZIP，基线7d5cacb、dirty=true；包内BUILD_INFO与81文件SOURCE_INPUTS，准确路径/大小/散列见FINAL_HANDOFF.md。
+- [x] 指定最终ZIP源码外解压实际运行；英文-only模拟记录的中文/英文/ID查询证明冻结JSON生效，六游戏API6项，已阅关注重启、SQLite及退出端口通过。
+- [x] 包内隐私/凭据/资料包审计通过；reference原件只留本地并忽略；未暂存提交、推送、建tag或Release。
+- [ ] GUI驱动超时，六游戏点击、正常MOD图/画廊及详情返回位置待人工；实际窗口截图只证明渲染状态。
+- [ ] 干净Windows10/11、物理E/F跨设备及人工验收未完成；dirty源码未归档，不可宣布可复现正式发布。
+- 功能冻结与最终说明：FINAL_HANDOFF.md、FINAL_RELEASE_NOTES.md。
+
+## CLOSE-1 功能冻结（2026-11-04）
+
+- [x] ModPage.search_info按后端结构补为可选字段，首次修复构建通过，无any/ts-ignore或绕过tsc。
+- [x] 本轮前端17项及TypeScript/Vite构建通过，品牌开发资源实际HTTP200有效PNG。
+- [x] 相关Python53项及临时库跨进程已阅/关注持久化通过；正式库仅只读查询且指纹不变。
+- [ ] 六游戏导航点击、图片及品牌失败占位、详情返回/滚动实际界面验收：隔离浏览器导航超时，证据保留，不能标为通过。
+- [ ] 下次打包显式收集角色JSON；本轮不打包、不新建Release。
+- [x] 本轮完整回归只运行一次：Python518/518、0失败、0跳过，993.584秒，记录CLOSE1-python-full.txt。
+- 当前可以整理CLOSE-2验收资料，但正式发布验收前须补齐上述实际界面确认，不能宣称已发布就绪。
+- 词库维持269键，第三方快照非官方完整或统一授权；后3游戏覆盖有限。未补全的真实界面/干净系统验收继续保留。
+
 ## F6 退出修复门槛
 
 - [x] 诊断：部分POST持有lifecycle_lock、GUI关闭同步等待锁的控制实验堆栈；源码/冻结60秒普通预览也有通过样本，不虚称旧事故唯一原因已确定。
@@ -85,3 +106,6 @@ Target: 0.5.0-rc3. A local candidate is not a formal release.
 - [ ] Recompute ZIP SHA-256, record source SHA, then separately authorize Release upload.
 
 Never move existing tags, force-push, copy a running SQLite main file as a backup, or upload an unverified EXE.
+# UX-SYNC-1B 补充（2026-11-04）
+
+当前源码采用“本地服务启动一次同步 + 刷新MOD手动入库”，取代三小时周期与独立手动导入按钮；高级查询保留来源链接/ID预览确认。新执行关联Python65、前端19、TS/Vite及差异检查通过。未运行全量、真实GUI、生产同步或重新打包；旧CLOSE-2包仍旧逻辑。不得将旧包人工验收当作本轮通过，尚须验证新运行环境首次入库、游戏/页面切换不重触发、高级查询及列表返回。详见[UX-SYNC-1当前说明](UX_SYNC_1.md)。未操作Git提交/标签/发布。

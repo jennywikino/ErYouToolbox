@@ -12,6 +12,7 @@ import time
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT/'src'))
 from web_sync import WebSync, utc
+from eryoutoolbox.ui_queries import readonly_connection
 from backfill_content_ratings import instance_lock
 
 DEFAULTS={'mode':'off','interval_hours':3,'max_pages':3}
@@ -47,6 +48,8 @@ class AutoSync:
         self.cancel=threading.Event()
         self.current_service=None
         self.worker=None
+        self.browser_startup_lock=threading.Lock()
+        self.browser_startup_done=False
 
     def stop(self):
         self.cancel.set()
@@ -54,16 +57,31 @@ class AutoSync:
         self.history().configure({**self.history().settings(),'paused':True})
         return {'status':'stop_requested'}
 
-    def launch(self, *, startup=False):
-        if self.settings()['mode']=='off':
+    def browser_launch(self, *, startup=False, game=None):
+        """One automatic import per service lifetime; explicit refresh may retry."""
+        if not self.database.is_file():raise ValueError('Existing database required')
+        if game is not None and (type(game) is not int or game not in {g['game_id'] for g in self.games or []}):
+            raise ValueError('Unknown game')
+        if startup:
+            with self.browser_startup_lock:
+                if self.browser_startup_done:return {'status':'startup_already_requested','requests':0}
+                self.browser_startup_done=True
+        return self.launch(startup=startup,refresh=True,game=game,bootstrap=startup,
+                           session_start=startup,bounded_pages=min(self.settings()['max_pages'],3))
+
+    def launch(self, *, startup=False, refresh=False, game=None, bootstrap=False,
+               session_start=False,bounded_pages=None):
+        if self.settings()['mode']=='off' and not refresh:
             if startup:return {'status':'disabled','requests':0}
             raise ValueError('Automatic sync is disabled')
         if not self.running.acquire(blocking=False):
-            if startup:return {'status':'already_running','requests':0}
+            if startup or refresh:return {'status':'already_running','requests':0}
             raise ValueError('Automatic sync already running')
         self.cancel.clear()
         def target():
-            try:self.run(force=not startup,preserve_preview=startup)
+            try:self.run(force=refresh or not startup,preserve_preview=startup or refresh,
+                         import_once=refresh,game=game,bootstrap=bootstrap,
+                         session_start=session_start,max_pages=bounded_pages)
             except Exception as exc:
                 if 'Another rating backfill instance is active' not in str(exc):
                     atomic_json(self.directory/'last_run.json',{'status':'failed','started_at':utc(),'started_epoch':time.time(),'error':str(exc),'requests':0})
@@ -126,10 +144,11 @@ class AutoSync:
         return {'settings':settings,'configured':(self.directory/'settings.json').is_file(),
                 'last_run':record,'next_due':next_check,'task':task}
 
-    def run(self,*,force=False,dry_run=False,max_pages=None,game=None,preserve_preview=False):
+    def run(self,*,force=False,dry_run=False,max_pages=None,game=None,preserve_preview=False,
+            import_once=False,bootstrap=False,session_start=False):
         # A missing disk must not create an empty SQLite database.
         if not self.database.is_file():raise ValueError('Existing database required')
-        settings=self.settings();mode='check' if dry_run else settings['mode']
+        settings=self.settings();mode='check' if dry_run else 'apply' if import_once else settings['mode']
         if mode=='off':return {'status':'disabled','requests':0}
         # Keep the same lock across check and apply, not two independent write entrances.
         with instance_lock(self.root/'logs/content_ratings/instance.lock'):
@@ -138,6 +157,8 @@ class AutoSync:
             history_cooldown=self.history().cooldown_until()
             if now<history_cooldown:return {'status':'cooldown','not_before':history_cooldown,'requests':0}
             if previous and now<previous.get('not_before',0):return {'status':'cooldown','not_before':previous['not_before'],'requests':0}
+            if import_once and not session_start and previous and now-previous.get('started_epoch',0)<2:
+                return {'status':'recently_requested','requests':0}
             if not force and previous and previous['status'] not in ('manual_preview_pending','preview_resolved') and now<previous['started_epoch']+settings['interval_hours']*3600:
                 history={'status':'not_requested','requests':0} if dry_run else self.run_history()
                 if history.get('not_before'):
@@ -152,11 +173,17 @@ class AutoSync:
                 atomic_json(self.directory/'last_run.json',deferred)
                 return deferred
             budget=max_pages if max_pages is not None else settings['max_pages']
+            initial=False
+            if bootstrap:
+                connection=readonly_connection(self.database)
+                try:initial=connection.execute('SELECT 1 FROM mods LIMIT 1').fetchone() is None
+                finally:connection.close()
+                if initial:budget=1
             if type(budget) is not int or not 1<=budget<=10:raise ValueError('max_pages must be 1..10')
             games=service.games if game is None else [g for g in service.games if g['game_id']==game]
             if not games or len(games)>6:raise ValueError('Unknown game or too many games')
             service.task_id=secrets.token_hex(16);service.state={'status':'checking','game_id':game,'automatic':True}
-            record={'status':'checking','started_at':utc(),'started_epoch':now,'mode':mode,'requests':0}
+            record={'status':'checking','started_at':utc(),'started_epoch':now,'mode':mode,'requests':0,'initial_sync':initial}
             atomic_json(self.directory/'last_run.json',record)
             try:
                 service.save();service.check_games(games,10,budget,True,window_days=90)
@@ -165,7 +192,8 @@ class AutoSync:
                 if mode=='apply' and service.state['status']=='waiting':
                     # Re-read opt-in immediately before the importer begins its transaction.
                     def write_guard():
-                        if self.cancel.is_set() or self.settings()['mode']!='apply':raise ValueError('Automatic apply was stopped or disabled during check')
+                        allowed=self.settings()==settings if import_once else self.settings()['mode']=='apply'
+                        if self.cancel.is_set() or not allowed:raise ValueError('Automatic apply was stopped or disabled during check')
                     write_guard()
                     service.apply(only_source_changes=True,write_guard=write_guard)
                 state=service.view()
@@ -173,14 +201,17 @@ class AutoSync:
                               scanned=state.get('scanned',0),statistics=state.get('statistics'),
                               failures=state.get('failures',[]),coverage=state.get('coverage','incomplete'),
                               inserted=state.get('report',{}).get('inserted',0),source_updated=state.get('report',{}).get('source_update_events',0))
+                record.update(games=state.get('games',[]),performance=state.get('performance'),
+                              unchanged=sum(s.get('report',{}).get('unchanged',0) for s in state.get('games',[])))
                 if state.get('scan_status')=='rate_limited':record['not_before']=max(time.time()+settings['interval_hours']*3600,self.history().cooldown_until())
-                elif not self.cancel.is_set():
+                elif not self.cancel.is_set() and state['status']!='failed':
                     from eryoutoolbox.author_updates import run_rotation
                     from eryoutoolbox.gamebanana import TIMEOUT,HEADERS
                     import httpx
                     with httpx.Client(timeout=TIMEOUT,headers=HEADERS) as client:
                         def author_guard():
-                            if self.cancel.is_set() or self.settings()['mode']!='apply':raise ValueError('Automatic apply stopped or disabled')
+                            allowed=self.settings()==settings if import_once else self.settings()['mode']=='apply'
+                            if self.cancel.is_set() or not allowed:raise ValueError('Automatic apply stopped or disabled')
                         try:
                             authors=run_rotation(self.database,self.root,client=client,apply=mode=='apply',advance=not dry_run,write_guard=author_guard)
                         except (OSError,ValueError,httpx.HTTPError) as exc:
@@ -190,6 +221,7 @@ class AutoSync:
                     record['requests']+=authors['requests']
                     if authors.get('rate_limited_at'):record['not_before']=time.time()+max(authors.get('retry_after_seconds') or settings['interval_hours']*3600,1)
                     if authors['status']!='success':record['status']='partial'
+                    record['author_failures']=max(authors.get('pending_count') or 0,1) if authors['status']!='success' else 0
                 if state['status']=='failed':record['error']=state.get('error','No validated pages')
                 if not dry_run and not record.get('not_before') and state['status']!='failed':
                     history=self.run_history()
@@ -199,6 +231,8 @@ class AutoSync:
                     if history['status'] in ('failed','partial','stopped'):record['status']='partial'
             except BaseException as exc:
                 record.update(status='stopped' if isinstance(exc,KeyboardInterrupt) else 'failed',ended_at=utc(),error=str(exc),requests=service.state.get('requests',0))
+                record.update(games=service.state.get('games',[]),performance=service.state.get('performance'))
+                record['failure_count']=len(record.get('failures',[]))+record.get('author_failures',0)+1
                 service.state={**service.state,'status':record['status'],'error':str(exc)}
                 try:service.save()
                 except (OSError,ValueError):pass
@@ -206,6 +240,7 @@ class AutoSync:
                 if isinstance(exc,KeyboardInterrupt):raise
                 return record
             record['ended_at']=utc()
+            record['failure_count']=len(record.get('failures',[]))+record.get('author_failures',0)+(1 if record.get('error') and not record.get('failures') else 0)
             self.current_service=None
             atomic_json(self.directory/'last_run.json',record)
             atomic_json(self.directory/('run_'+secrets.token_hex(12)+'.json'),record)

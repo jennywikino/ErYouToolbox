@@ -1,6 +1,7 @@
 import {MyAuthors,AuthorHeader,type Author} from './Authors'
 import SyncCheck from './SyncCheck'
-import {requestStartupCheck,requestDueCheck} from './autoStartup'
+import brandIcon from '../../assets/branding/MiaomiaoEryouxiang_icon.png'
+import {requestStartupCheck} from './autoStartup'
 import { useEffect, useState, useRef, type FormEvent } from 'react'
 import type { Game, Mod, ModPage } from './types'
 import Icon from './Icons'
@@ -9,7 +10,7 @@ import ModDetail from './ModDetail'
 import AuthorUpdateCheck from './AuthorUpdateCheck'
 import CategorySidebar from './CategorySidebar'
 import PopularPanel, {type PopularView} from './PopularPanel'
-import { syncTimeLabel, syncStatusLabel, restoreScrollTop, restorePopularView, validBrowseSnapshot, listingPreferences, resizedPage, imagePreferenceQuery } from './policy'
+import { globalSearchContext, syncTimeLabel, syncStatusLabel, restoreScrollTop, restorePopularView, validBrowseSnapshot, listingPreferences, resizedPage, imagePreferenceQuery } from './policy'
 
 const LISTING_KEY='eryouListing'
 function savedListing(){try{return listingPreferences(JSON.parse(localStorage.getItem(LISTING_KEY)||'null'))}catch{return listingPreferences(null)}}
@@ -30,6 +31,7 @@ function detailIdentity(hash: string) {
 }
 
 export default function App() {
+  const [brandFailed,setBrandFailed]=useState(false)
   const [games, setGames] = useState<Game[]>([])
   const [game, setGame] = useState('')
   const [category,setCategory]=useState(''),[subcategory,setSubcategory]=useState('')
@@ -80,11 +82,8 @@ export default function App() {
   // Independent of library queries; never delay local first paint or cancel a
   // server-owned job when navigating away from this page.
   useEffect(()=>{
-    let pending=false
     const error=(e:unknown)=>window.dispatchEvent(new CustomEvent('auto-sync-error',{detail:String(e)}))
-    requestStartupCheck().catch(error)
-    const timer=setInterval(()=>{if(pending)return;pending=true;requestDueCheck(fetch).catch(error).finally(()=>{pending=false})},60000)
-    return()=>clearInterval(timer)
+    requestStartupCheck().then(()=>window.dispatchEvent(new Event('automation-configured'))).catch(error)
   },[])
   useEffect(()=>{try{localStorage.setItem(LISTING_KEY,JSON.stringify({viewMode,pageSize}))}catch{/* Storage may be disabled; browsing still works. */}},[viewMode,pageSize])
   useEffect(()=>{
@@ -177,7 +176,7 @@ export default function App() {
     const next:SavedView={...viewRef.current,author:a,category:'',subcategory:'',feed:'latest',game:'',draft:'',search:'',sort:'created',page:0,scrollY:0,anchor:'',anchorTop:0}
     history.pushState({eryouView:next},'',`#/author/${encodeURIComponent(a.source)}/${a.author_id}`);applyView(next);setHash(window.location.hash);window.scrollTo(0,0)
   }
-  const submitSearch = (event: FormEvent) => { event.preventDefault(); setSearch(draft.trim()); setPage(0); resetList() }
+  const submitSearch = (event: FormEvent) => { event.preventDefault(); const next=globalSearchContext(viewRef.current);setSearch(next.search);setCategory(next.category);setSubcategory(next.subcategory);setAuthor(next.author);setPage(next.page);resetList(true) }
   const changeListing=(mode:typeof viewMode,size:typeof pageSize)=>{
     if(mode===viewMode&&size===pageSize)return
     const nextPage=size===pageSize?page:resizedPage(page,pageSize,size,data?.total_count||0)
@@ -189,30 +188,31 @@ export default function App() {
   const pageCount = Math.max(1, Math.ceil((data?.total_count || 0) / pageSize))
   const selectCategory=(cat:string,sub:string)=>{setCategory(cat);setSubcategory(sub);setPage(0);resetList()}
   const currentGame = games.find(item => String(item.game_id) === game)?.name || '全部游戏'
+  const chooseGame=(id:string)=>{if(id===game)return;setGame(id);setPage(0);setCategory('');setSubcategory('');setAuthor(null);setSearch('');setDraft('');resetList(true)}
+  const gameMarks:Record<number,string>={8552:'GI',18366:'SR',19567:'ZZ',20357:'WW',21842:'EF',23012:'NTE'}
+  const gameOrder=[8552,18366,19567,20357,21842,23012]
 
   return <div className="app-shell">
     <nav className="icon-rail" aria-label="主导航">
-      <a className="brand-mark" href="#" aria-label="妙妙二玩箱首页"><img src={new URL('../../assets/branding/MiaomiaoEryouxiang_icon.png', import.meta.url).href} alt="妙妙二玩箱" width="36" height="36" /></a>
-      <a href="#" className="rail-button active" aria-label="MOD 作品库" title="MOD 作品库"><Icon name="grid" /></a>
+      <a className="brand-mark" href="#" aria-label="妙妙二玩箱首页">{brandFailed?<span aria-hidden="true">妙</span>:<img src={brandIcon} alt="" width="36" height="36" onError={()=>setBrandFailed(true)}/>}</a>
+      <div className="game-rail-buttons" role="group" aria-label="游戏导航">
+        <button type="button" className={`rail-button ${game===''?'active':''}`} title="全部游戏" aria-label="全部游戏" aria-pressed={game===''} onClick={()=>chooseGame('')}><Icon name="grid" /></button>
+        {gameOrder.map(id=>games.find(item=>item.game_id===id)).filter((item):item is Game=>!!item).map(item=><button type="button" key={item.game_id} className={`rail-button ${game===String(item.game_id)?'active':''}`} title={item.name} aria-label={item.name} aria-pressed={game===String(item.game_id)} onClick={()=>chooseGame(String(item.game_id))}>{gameMarks[item.game_id]}</button>)}
+      </div>
       <div className="flex-1" />
-      <a href="http://127.0.0.1:8501" target="_blank" rel="noopener noreferrer"
-        className="rail-button" aria-label="打开 Streamlit 旧版界面" title="打开 Streamlit 旧版界面"><Icon name="external" /></a>
       <span className="pb-6 text-[10px] text-slate-400">V0.5 RC3</span>
     </nav>
     <div className="app-body">
       <header className="topbar">
         <div className="flex min-w-0 items-center gap-4">
-          <select aria-label="选择游戏" value={game} className="game-select"
-            onChange={event => { setGame(event.target.value);setCategory('');setSubcategory(''); setPage(0); resetList() }}>
-            <option value="">全部游戏</option>
-            {games.map(item => <option key={item.game_id} value={item.game_id}>{item.name}</option>)}
-          </select>
+          <span className="text-sm font-semibold" aria-live="polite">{currentGame}</span>
           <span className="hidden whitespace-nowrap text-xs text-slate-400 lg:block">GameBanana / {isDetail ? '作品详情' : '本地作品库'}</span>
         </div>
         <form onSubmit={submitSearch} className="search-box">
           <Icon name="search" />
           <input aria-label="搜索 MOD ID、标题或作者" placeholder="搜索 MOD ID、标题或作者" value={draft} onChange={event => setDraft(event.target.value)} />
           <button type="submit" className="search-submit">搜索</button>
+          <button type="button" className="small-button" onClick={()=>window.dispatchEvent(new CustomEvent('open-mod-query',{detail:{game,query:draft}}))}>高级查询</button>
         </form>
       </header>
       <div className="content-shell">
@@ -228,7 +228,7 @@ export default function App() {
            {subcategory&&<><span> / </span><button onClick={()=>selectCategory(category,subcategory)}>{subcategory}</button></>}
            {isDetail&&<span> / {detail?.title||'作品详情'}</span>}
           </nav>
-          <div hidden={feed!=='latest'||isDetail}><SyncCheck game={game} onComplete={refreshLibrary}/></div>
+          <SyncCheck game={game} games={games} visible={feed==='latest'&&!isDetail} onComplete={refreshLibrary}/>
           <div ref={listRef} hidden={isDetail}>{feed === 'popular' ? <PopularPanel games={games} game={game} search={search} ratings={ratings} allowUnknown={allowUnknown} onOpen={openMod} view={popular} onViewChange={setPopular} paused={isDetail}/> : <>
             {feed === 'subscriptions' && <><MyAuthors revision={feedRevision} onOpen={openAuthor} onChange={()=>setFeedRevision(v=>v+1)}/><AuthorUpdateCheck /></>}
             {author&&<AuthorHeader key={`${author.source}:${author.author_id}`} author={author} onChange={()=>setFeedRevision(v=>v+1)}/>}
@@ -270,7 +270,7 @@ export default function App() {
             {loading && !data && <div className={`mod-grid${viewMode==='compact'?' compact-grid':''}`} role="status" aria-label="正在读取本地作品">{Array.from({length:5},(_,i)=><div key={i} className="card-skeleton"><span/><span/><span/></div>)}</div>}
             {error && <div className="error-banner" role="alert">{error}<button className="small-button mt-3" onClick={() => setRevision(revision + 1)}>重新读取</button></div>}
             {!loading && !error && data?.items.length === 0 && <div className="empty-state"><Icon name="folder" /><h2>{data.discovery?.local_count===0?'尚未收录本地作品':'没有符合当前筛选条件的作品'}</h2>
-              <p>{feed === 'subscriptions' ? '可以在作品详情中关注作者；也可调整游戏或搜索条件。' : '空库可点击上方“刷新”检查近90天作品；授权入库后自动保存，也可在更多设置中确认导入。'}</p></div>}
+              <p>{search ? (data.search_info?.unfiltered_count ? '当前已阅、图片、订阅等筛选排除了匹配作品。' : `本地没有匹配作品。${data.search_info?.alias_known?'已扩展已知角色别名。':'该关键词没有已知角色别名，已按原词搜索。'}`) : feed === 'subscriptions' ? '可以在作品详情中关注作者；也可调整游戏或搜索条件。' : '启动后会后台检查并自动入库；离线时可稍后点击“刷新MOD”重试。精确链接或ID可使用搜索框旁的高级查询。'}</p></div>}
             <div ref={gridRef} className={`mod-grid${viewMode==='compact'?' compact-grid':''}`}>
               {data?.items.map((mod,index) => <PreviewCard key={`${mod.source}:${mod.item_type}:${mod.item_id}:${allowUnknown}`}
                 mod={mod} compact={viewMode==='compact'} priority={index<firstRow} allowUnknown={allowUnknown} timeMode={sort} onOpen={() => openMod(mod)} onReadChange={()=>setFeedRevision(value=>value+1)} />)}

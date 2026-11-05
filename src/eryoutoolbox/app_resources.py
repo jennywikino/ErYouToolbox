@@ -41,6 +41,11 @@ class _References(HTMLParser):
 
 def inventory(root):
     root = Path(root).resolve()
+    alias_name='eryoutoolbox/character_aliases.json'
+    alias_path=root/'src'/alias_name if (root/'src'/alias_name).is_file() else root/alias_name
+    if not alias_path.is_file():raise ValueError(f'Missing application resource: {alias_path}')
+    aliases=json.loads(alias_path.read_text(encoding='utf-8'))
+    if aliases.get('format')!=1 or not isinstance(aliases.get('games'),dict):raise ValueError(f'Invalid character index: {alias_path}')
     required = [*CONFIGS, *BRANDING, 'frontend/dist/index.html']
     for name in required:
         if not (root/name).is_file():
@@ -58,7 +63,8 @@ def inventory(root):
         if not path.is_relative_to(root/'frontend/dist/assets') or not path.is_file():
             raise ValueError(f'Missing or unsafe frontend asset: {path}')
     paths = [root/name for name in (*CONFIGS, *BRANDING)] + sorted((root/'frontend/dist').rglob('*'))
-    files = {}
+    if alias_path.is_symlink() or not alias_path.resolve().is_relative_to(root):raise ValueError(f'Unsafe application resource: {alias_path}')
+    files = {alias_name:hashlib.sha256(alias_path.read_bytes()).hexdigest()}
     for path in paths:
         if path.is_file():
             if path.is_symlink() or not path.resolve().is_relative_to(root):

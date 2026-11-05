@@ -6,6 +6,23 @@ export function safeUrl(value: unknown): string | null {
   } catch { return null }
 }
 
+export function gameBananaModId(value:string):number|null {
+  const text=value.trim()
+  if(text.length>2048)return null
+  let digits=text
+  if(!/^\d+$/.test(text)){
+    try{
+      const url=new URL(text)
+      if(url.protocol!=='https:'||!['gamebanana.com','www.gamebanana.com'].includes(url.hostname)||url.username||url.password||url.port)return null
+      const match=/^\/mods\/(\d+)\/?$/.exec(url.pathname)
+      if(!match)return null
+      digits=match[1]
+    }catch{return null}
+  }
+  const id=Number(digits)
+  return Number.isSafeInteger(id)&&id>0?id:null
+}
+
 export function imagePreferenceQuery(): string {
   return '' // Legacy preferences must not hide images after rc3.
 }
@@ -70,6 +87,13 @@ export function syncStatusLabel(status: string): string {
   return ({success: '成功', partial: '部分成功', failed: '失败', running: '运行中'} as Record<string, string>)[status] || '未知状态'
 }
 
+export function syncFailureCount(record:{failure_count?:number;failures?:unknown[];error?:string;status?:string;authors?:{status?:string;pending_count?:number}}|null|undefined):number {
+  if(!record)return 0
+  const errors=record.failures?.length||0
+  const authors=record.authors?.status&&record.authors.status!=='success'?Math.max(1,record.authors.pending_count||0):0
+  return Math.max(record.failure_count||0,errors+authors,(record.error||['failed','partial','stopped'].includes(record.status||''))?1:0)
+}
+
 export function restoreScrollTop(anchorTop:number|null,currentY:number,savedAnchorTop:number,pixelFallback:number):number{
   const target=anchorTop===null?pixelFallback:currentY+anchorTop-savedAnchorTop
   return Number.isFinite(target)?Math.max(0,target):0
@@ -109,4 +133,7 @@ export function subscriptionActivity(mod: {subscription_followed_at?: string; au
   if (Date.parse(mod.created_at || '') >= followed && Date.parse(mod.local_first_seen_event_at || '') >= followed) return '关注后新发布'
   if (!Number.isFinite(Date.parse(mod.created_at || ''))) return '发布时间未知 · 已收录作品'
   return '已收录历史作品'
+}
+export function globalSearchContext<T extends {game:string;draft:string}>(view:T) {
+  return {...view,search:view.draft.trim(),category:'',subcategory:'',author:null,page:0} as Omit<T,'search'|'category'|'subcategory'|'author'|'page'> & {search:string;category:string;subcategory:string;author:null;page:number}
 }

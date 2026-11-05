@@ -7,9 +7,9 @@ export default function HistorySyncSettings({mode,onComplete,onStatus}:{mode?:st
  useEffect(()=>{if(data?.last_run?.ended_at)onComplete()},[data?.last_run?.ended_at])
  async function send(action:string){setBusy(true);setError('');try{const r=await fetch('/api/history-sync',{method:'POST',headers:{'Content-Type':'application/json','X-ErYouToolbox':'1'},body:JSON.stringify({action})});const v=await r.json();if(!r.ok)throw Error(v.error)}catch(e){setError(String(e))}finally{setBusy(false)}}
  const running=data?.last_run?.status==='checking'
- return <section className="mt-3 border-t border-slate-200 pt-3 text-sm"><strong>继续向前搜索 · 手动历史拓展</strong>
+ return <section className="mt-3 border-t border-slate-200 pt-3 text-sm"><strong>历史补全 · 继续向前搜索</strong>
  <p>每批每游戏最多 2 页，包含边界重叠复核；不会后台无限搜索。{mode==='apply'?'当前已授权入库，成功事务后才推进历史边界。':'当前仅预览；入库授权前不推进正式历史检查点。'}</p>
- <button className="small-button" disabled={busy||running} onClick={()=>send('continue')}>继续搜索较早作品</button><button className="small-button ml-3" disabled={busy||!running} onClick={()=>send('stop')}>暂停</button>
+ <button className="small-button" disabled={busy||running} onClick={()=>send('continue')}>继续向前搜索</button><button className="small-button ml-3" disabled={busy||!running} onClick={()=>send('stop')}>暂停</button>
  {data?.last_run&&<p role="status">{data.last_run.status} · 请求 {data.last_run.requests||0} · 已检查页 {data.last_run.games?.reduce((n,g)=>n+(g.pages?.length||0),0)||0} · {mode==='apply'?'新收录':'候选'} {data.last_run.games?.reduce((n,g)=>n+(g.inserted??g.newly_collected_old??0),0)||0} · 重复 {data.last_run.games?.reduce((n,g)=>n+(g.duplicates||0),0)||0} · 失败 {data.last_run.games?.reduce((n,g)=>n+(g.failures?.length||0),0)||0}</p>}
  <details><summary>历史边界及错误（覆盖仍不完整）</summary>{data?.games.map(g=><p key={g.game_id}>{g.name} · 已提交第 {g.checkpoint?.page||0} 页 · 边界日期 {g.checkpoint?.oldest||'尚未确认'}</p>)}{data?.last_run?.error&&<p role="alert">{data.last_run.error}</p>}</details>
  {error&&<p role="alert">{error}</p>}</section>

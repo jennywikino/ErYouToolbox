@@ -152,8 +152,8 @@ class StartupSyncTests(unittest.TestCase):
                 response=connection.getresponse(); response.read(); self.assertEqual(response.status,200)
                 connection.close()  # No browser connection owns/cancels the worker.
                 self.finish()
-                self.assertEqual(self.auto.status()['last_run']['status'], 'waiting')
-                self.assertEqual(self.count('mods'), 0)
+                self.assertEqual(self.auto.status()['last_run']['status'], 'success')
+                self.assertEqual(self.count('mods'), 2)
         finally:
             server.shutdown(); server.server_close(); thread.join(timeout=5)
 
