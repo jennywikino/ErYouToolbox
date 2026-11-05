@@ -50,6 +50,8 @@
 
 仓库公开可见，但当前未添加开源许可证，不代表允许任意复制、修改或再分发代码。
 
-## 1.0.0-rc1 最终候选（新包尚待本轮验收/上传）
+## 1.0.0-rc1 最终候选（预发布候选）
 
 旧rc3下载地址继续保留；新源码版本已功能冻结。见[最终交接](docs/FINAL_HANDOFF.md)和[候选说明](docs/FINAL_RELEASE_NOTES.md)。干净Windows兼容性未验收，因此不是1.0.0正式版。
+
+最新候选：[v1.0.0-rc1](https://github.com/jennywikino/ErYouToolbox/releases/tag/v1.0.0-rc1)。独立解压与基本GUI验证通过；干净Windows仍未验收。实际下载是否可用以Releases页面为准。
