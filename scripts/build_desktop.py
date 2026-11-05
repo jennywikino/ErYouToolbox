@@ -11,7 +11,7 @@ import zipfile
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT/'src'))
 from eryoutoolbox.app_resources import inventory, verify_resources, MANIFEST
-VERSION = '0.5.0-rc3'
+VERSION = '1.0.0-rc1'
 
 
 def main():
@@ -75,7 +75,7 @@ print(json.dumps({'embedded_icon_images':len(actual),'icon_matches_supplied':Tru
         raise RuntimeError('Packaged resources differ from pre-build inputs')
     versions = json.loads(subprocess.check_output([str(args.packaging_python),'-c',
         "import importlib.metadata as m,json,platform; print(json.dumps({'python':platform.python_version(),**{n:m.version(n) for n in ['pywebview','pythonnet','pyinstaller','httpx']}}))"],text=True))
-    manifest={'version':VERSION,'build_revision':'CLOSE-2','display_name':'妙妙二玩箱','executable':'妙妙二玩箱.exe','source_commit':git_sha,'working_tree_dirty':dirty,'platform':platform_info,'dependencies':versions,'resource_manifest':'_internal/'+MANIFEST}
+    manifest={'version':VERSION,'build_revision':'FINAL-1','display_name':'妙妙二玩箱','executable':'妙妙二玩箱.exe','source_commit':git_sha,'working_tree_dirty':dirty,'platform':platform_info,'dependencies':versions,'resource_manifest':'_internal/'+MANIFEST}
     manifest.update(brand_check)
     (package/'BUILD_INFO.json').write_text(json.dumps(manifest,indent=2),encoding='utf-8')
     # Reproduce actual third-party notices without collecting environment or
@@ -94,7 +94,7 @@ print(json.dumps({'embedded_icon_images':len(actual),'icon_matches_supplied':Tru
         'Keep userdata when updating. Close the app and pause all writers before backup or moving drives.\n'
         'Do not copy an active development database here. Existing personal data migration is not automatic.\n'
         'Background scheduled tasks are NOT supported. Checks run only while the client is open.\n'
-        'Automatic mode starts OFF until explicit first-use consent; saved settings are never replaced.\n'
+        'One bounded six-game refresh runs per client/service startup and imports verified MOD metadata. No hourly browser timer. Advanced exact queries require confirmation.\n'
         'While open, the client checks due-time once per minute. Closing it stops future checks.\n'
         'Python, Node and Vite are not required to run the EXE.\n'
         'Logs: userdata/logs/desktop.log. Unsigned candidate; clean-machine acceptance is still required.\n',encoding='utf-8')

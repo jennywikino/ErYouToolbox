@@ -3,8 +3,12 @@ import hashlib
 import json
 import math
 import uuid
+import sys
+from pathlib import Path
+sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'src'))
 
 PATHS = (
+    'data/character_library/library.json',
     'config/project_identity.json',
     'logs/author_updates/rotation.json', 'logs/author_updates/latest.json',
     'logs/history_sync/state.json', 'logs/history_sync/settings.json', 'logs/history_sync/cooldown.json',
@@ -25,7 +29,10 @@ def validate(path, value):
         if not ok: raise ValueError('Invalid recovery state: '+name)
     def ids(items):return isinstance(items,list) and all(type(i) is int and i>0 for i in items)
     def number(n):return type(n) in (int,float) and math.isfinite(n) and n>=0
-    if name=='config/project_identity.json':
+    if name=='data/character_library/library.json':
+        from eryoutoolbox.character_library import CharacterLibrary
+        CharacterLibrary.normalize(value)
+    elif name=='config/project_identity.json':
         require({'project_id'}<=set(value)<= {'project_id','name'});uuid.UUID(value['project_id'])
     elif name.endswith('/cooldown.json'):
         require(set(value)<= {'not_before','http_status','observed_at'} and number(value.get('not_before')))

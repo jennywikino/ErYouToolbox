@@ -55,7 +55,8 @@ class JasmTests(unittest.TestCase):
         self.commit(self.preview())
         def command(body):self.commit(self.library.command(body))
         command({'action':'import','document':{'format':1,'games':{'8552':{'胡桃':['Imported']}}}})
-        self.assertEqual(self.library.effective()[8552]['胡桃'],['Imported'])
+        self.assertEqual(self.library.effective()[8552]['胡桃'][0],'Imported')
+        self.assertIn('Hutao',self.library.effective()[8552]['胡桃'])
         command({'action':'edit','game':8552,'name':'胡桃','aliases':['Personal']})
         self.assertEqual(self.library.effective()[8552]['胡桃'],['Personal'])
         backups=self.library.status()['backups']

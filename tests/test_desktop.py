@@ -122,7 +122,10 @@ class DesktopTests(unittest.TestCase):
         self.assertEqual(self.api.web_sync.root,self.root)
         self.assertEqual(self.api.auto_sync.root,self.root)
         self.assertTrue(self.api.auto_sync.directory.is_relative_to(self.root))
-        self.assertEqual(self.request('/api/auto-sync/startup',{})[0],200)
+        with patch('web_sync.collect_game',return_value={'records':[],'actual_record_count':0,'request_count':1,'failure_reasons':[{'reason':'offline fixture'}],'collected_at':'2026-11-05T00:00:00Z'}):
+            self.assertEqual(self.request('/api/auto-sync/startup',{})[0],200)
+            self.api.auto_sync.worker.join(15)
+            self.assertFalse(self.api.auto_sync.worker.is_alive())
         self.assertEqual(self.api.auto_sync.settings()['mode'],'off')
 
     def test_frozen_api_does_not_require_development_config(self):

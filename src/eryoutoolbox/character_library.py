@@ -127,7 +127,10 @@ class CharacterLibrary:
                     if values is None:
                         result[gid].pop(key, None)
                     else:
-                        result[gid][key] = values
+                        # Higher source wins ordering; valid lower-source search spellings remain.
+                        # Personal corrections remain a complete override (including deletions).
+                        result[gid][key] = (list(dict.fromkeys([*values,*result[gid].get(key,[])]))
+                                            if layer!='personal' else values)
         return {int(g): names for g, names in result.items()}
 
     @staticmethod

@@ -249,7 +249,11 @@ def make_handler(api: ReadOnlyAPI, port: int):
                     result=api.auto_sync.configure(body)
                 elif self.path == '/api/history-sync':
                     history=api.history_sync
-                    if body=={'action':'continue'}:
+                    if isinstance(body,dict) and set(body)=={'action','mode'} and body['action']=='authorize':
+                        if body['mode'] not in ('off','check','apply'):raise ValueError('Invalid history authorization')
+                        api.auto_sync.configure({**api.auto_sync.settings(),'mode':body['mode']})
+                        result=history.status()
+                    elif body=={'action':'continue'}:
                         if api.web_sync.worker_active or api.auto_sync.running.locked():raise ValueError('Another sync task is active')
                         if (history.status().get('last_run') or {}).get('status')=='checking':raise ValueError('Historical scan already running')
                         history.configure({**history.settings(),'enabled':True,'paused':False,'max_pages':2})

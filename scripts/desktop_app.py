@@ -28,7 +28,7 @@ from react_api import ReadOnlyAPI, make_handler
 from backfill_content_ratings import instance_lock
 from desktop_lifecycle import DesktopLifecycle
 
-VERSION = '0.5.0-rc3'
+VERSION = '1.0.0-rc1'
 
 
 class DesktopAPI(ReadOnlyAPI):

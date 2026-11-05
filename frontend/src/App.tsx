@@ -200,7 +200,7 @@ export default function App() {
         {gameOrder.map(id=>games.find(item=>item.game_id===id)).filter((item):item is Game=>!!item).map(item=><button type="button" key={item.game_id} className={`rail-button ${game===String(item.game_id)?'active':''}`} title={item.name} aria-label={item.name} aria-pressed={game===String(item.game_id)} onClick={()=>chooseGame(String(item.game_id))}>{gameMarks[item.game_id]}</button>)}
       </div>
       <div className="flex-1" />
-      <span className="pb-6 text-[10px] text-slate-400">V0.5 RC3</span>
+      <span className="pb-6 text-[10px] text-slate-400">V1.0 RC1</span>
     </nav>
     <div className="app-body">
       <header className="topbar">
@@ -285,7 +285,7 @@ export default function App() {
           <div><p className="section-kicker">浏览设置</p><h2 className="mt-2 text-base font-semibold text-slate-800">留一点空间给发现</h2></div>
           <CategorySidebar game={game} category={category} subcategory={subcategory} revision={feedRevision} onSelect={selectCategory} disabled={feed==='popular'}/>
           <div className="mt-auto border-t border-slate-100 pt-5 text-[11px] leading-6 text-slate-400">
-            <p>妙妙二玩箱 · V0.5 RC3</p><p>数据来自本机 SQLite</p><p>图片来源于作品原帖</p>
+            <p>妙妙二玩箱 · V1.0 RC1</p><p>数据来自本机 SQLite</p><p>图片来源于作品原帖</p>
           </div>
         </aside>
       </div>

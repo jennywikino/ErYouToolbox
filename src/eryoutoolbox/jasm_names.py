@@ -19,6 +19,7 @@ def parse_names(rows, gid):
         if not isinstance(row, dict):raise ValueError('JASM角色项必须为对象')
         english, chinese = row.get('InternalName'), row.get('DisplayName')
         if not isinstance(english, str) or not isinstance(chinese, str):raise ValueError('JASM缺少中英文名称')
+        english,chinese=english.strip(),chinese.strip()
         if english in ('Others', 'Weapons', 'Gliders'):continue
         if gid == '20357' and english.casefold() == 'suoming':
             chinese, aliases = '锁暝', OFFICIAL['锁暝']
